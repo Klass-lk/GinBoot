@@ -1,4 +1,4 @@
-package main
+package ginboot
 
 import (
 	"errors"
