@@ -1,4 +1,4 @@
-module github.com/Klass-lk/GinBoot
+module github.com/klass-lk/ginboot
 
 go 1.22.0
 
