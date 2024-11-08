@@ -1,9 +1,8 @@
-package GinBoot
+package ginboot
 
 import (
 	"context"
 	"fmt"
-	"github.com/klass-lk/ginboot/types"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -11,11 +10,11 @@ import (
 	"time"
 )
 
-type MongoRepository[T types.Document] struct {
+type MongoRepository[T Document] struct {
 	collection *mongo.Collection
 }
 
-func NewMongoRepository[T types.Document](db *mongo.Database) *MongoRepository[T] {
+func NewMongoRepository[T Document](db *mongo.Database) *MongoRepository[T] {
 	var doc T
 	return &MongoRepository[T]{
 		collection: db.Collection(doc.GetCollectionName()),
@@ -191,7 +190,7 @@ func (r *MongoRepository[T]) FindAll(opts ...*options.FindOptions) ([]T, error) 
 	return results, err
 }
 
-func (r *MongoRepository[T]) FindAllPaginated(pageRequest types.PageRequest) (types.PageResponse[T], error) {
+func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	skip := bson.D{{"$skip", (pageRequest.Page - 1) * pageRequest.Size}}
@@ -204,21 +203,21 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest types.PageRequest) (ty
 	cursor, err := r.Query().Aggregate(ctx, aggregationPipeline)
 	if err != nil {
 		fmt.Println("Error running aggregation:", err)
-		return types.PageResponse[T]{}, err
+		return PageResponse[T]{}, err
 	}
 	defer cursor.Close(ctx)
 
 	var results []T
 	if err = cursor.All(ctx, &results); err != nil {
 		fmt.Println("Error retrieving results:", err)
-		return types.PageResponse[T]{}, err
+		return PageResponse[T]{}, err
 	}
 	count, err := r.Query().CountDocuments(ctx, bson.M{})
 	if err != nil {
-		return types.PageResponse[T]{}, err
+		return PageResponse[T]{}, err
 	}
 	totalPages := int(math.Ceil(float64(count) / float64(pageRequest.Size)))
-	pageResponse := types.PageResponse[T]{
+	pageResponse := PageResponse[T]{
 		Contents:         results,
 		NumberOfElements: pageRequest.Size,
 		Pageable:         pageRequest,
@@ -228,7 +227,7 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest types.PageRequest) (ty
 	return pageResponse, nil
 }
 
-func (r *MongoRepository[T]) FindByPaginated(pageRequest types.PageRequest, filters map[string]interface{}) (types.PageResponse[T], error) {
+func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -248,21 +247,21 @@ func (r *MongoRepository[T]) FindByPaginated(pageRequest types.PageRequest, filt
 	cursor, err := r.Query().Aggregate(ctx, aggregationPipeline)
 	if err != nil {
 		fmt.Println("Error running aggregation:", err)
-		return types.PageResponse[T]{}, err
+		return PageResponse[T]{}, err
 	}
 	defer cursor.Close(ctx)
 
 	var results []T
 	if err = cursor.All(ctx, &results); err != nil {
 		fmt.Println("Error retrieving results:", err)
-		return types.PageResponse[T]{}, err
+		return PageResponse[T]{}, err
 	}
 	count, err := r.Query().CountDocuments(ctx, filter)
 	if err != nil {
-		return types.PageResponse[T]{}, err
+		return PageResponse[T]{}, err
 	}
 	totalPages := int(math.Ceil(float64(count) / float64(pageRequest.Size)))
-	pageResponse := types.PageResponse[T]{
+	pageResponse := PageResponse[T]{
 		Contents:         results,
 		NumberOfElements: pageRequest.Size,
 		Pageable:         pageRequest,

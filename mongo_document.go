@@ -1,4 +1,4 @@
-package types
+package ginboot
 
 type Document interface {
 	GetID() string

@@ -1,4 +1,4 @@
-package types
+package ginboot
 
 type AuthContext struct {
 	UserId string

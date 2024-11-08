@@ -1,4 +1,4 @@
-package security
+package ginboot
 
 type PasswordEncoder interface {
 	GetPasswordHash(password string) (string, error)

@@ -1,12 +1,11 @@
-package GinBoot
+package ginboot
 
 import (
-	"github.com/klass-lk/ginboot/types"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type GenericRepository[T types.Document] interface {
+type GenericRepository[T Document] interface {
 	Query() *mongo.Collection
 	FindById(id interface{}) (T, error)
 	FindAllById(idList []string) ([]T, error)
@@ -20,8 +19,8 @@ type GenericRepository[T types.Document] interface {
 	FindBy(field string, value interface{}) ([]T, error)
 	FindByMultiple(filters map[string]interface{}) ([]T, error)
 	FindAll(opts ...*options.FindOptions) ([]T, error)
-	FindAllPaginated(pageRequest types.PageRequest) (types.PageResponse[T], error)
-	FindByPaginated(pageRequest types.PageRequest, filters map[string]interface{}) (types.PageResponse[T], error)
+	FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error)
+	FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error)
 	CountBy(field string, value interface{}) (int64, error)
 	CountByFilters(filters map[string]interface{}) (int64, error)
 	ExistsBy(field string, value interface{}) (bool, error)

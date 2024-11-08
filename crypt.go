@@ -1,4 +1,4 @@
-package security
+package ginboot
 
 import "golang.org/x/crypto/bcrypt"
 

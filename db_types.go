@@ -1,4 +1,4 @@
-package types
+package ginboot
 
 type SortField struct {
 	Field     string `json:"field"`
