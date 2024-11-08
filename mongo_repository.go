@@ -1,4 +1,4 @@
-package db
+package GinBoot
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package db
+package GinBoot
 
 import (
 	"github.com/klass-lk/ginboot/types"
