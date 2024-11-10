@@ -17,7 +17,7 @@ type GenericRepository[T Document] interface {
 	FindOneBy(field string, value interface{}) (T, error)
 	FindOneByFilters(filters map[string]interface{}) (T, error)
 	FindBy(field string, value interface{}) ([]T, error)
-	FindByMultiple(filters map[string]interface{}) ([]T, error)
+	FindByFilters(filters map[string]interface{}) ([]T, error)
 	FindAll(opts ...*options.FindOptions) ([]T, error)
 	FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error)
 	FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error)
