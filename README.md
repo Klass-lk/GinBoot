@@ -14,7 +14,7 @@ GinBoot is a utility library for the [Gin Web Framework](https://github.com/gin-
 To install GinBoot, add it to your project:
 
 ```bash
-go get github.com/your-username/ginboot
+go get github.com/klass-lk/ginboot
 ```
 
 ## Usage
