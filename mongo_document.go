@@ -1,6 +1,6 @@
 package ginboot
 
 type Document interface {
-	GetID() string
+	GetID() interface{}
 	GetCollectionName() string
 }

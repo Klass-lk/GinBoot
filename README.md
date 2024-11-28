@@ -56,6 +56,54 @@ type MyRepository struct {
 }
 ```
 
+### MongoDB Configuration
+
+GinBoot provides a flexible MongoDB configuration system through the `MongoConfig` struct. Here's how to use it:
+
+```go
+// Create a new MongoDB configuration
+config := ginboot.NewMongoConfig().
+    WithHost("localhost", 27017).
+    WithCredentials("username", "password").
+    WithDatabase("mydb").
+    WithOption("authSource", "admin")
+
+// Connect to MongoDB
+db, err := config.Connect()
+if err != nil {
+    log.Fatal(err)
+}
+
+// Create a repository for your model
+type User struct {
+    ID   string `bson:"_id"`
+    Name string `bson:"name"`
+}
+
+func (u User) GetID() interface{}     { return u.ID }
+func (u User) SetID(id interface{})   { u.ID = id.(string) }
+func (u *User) GetCollectionName() string { return "users" }
+
+// Initialize the repository
+userRepo := ginboot.NewMongoRepository[User](db)
+
+// Use the repository
+user := User{Name: "John Doe"}
+err = userRepo.Save(user)
+```
+
+For more secure handling of credentials, you can use environment variables:
+
+```go
+config := ginboot.NewMongoConfig().
+    WithHost(os.Getenv("MONGO_HOST"), 27017).
+    WithCredentials(
+        os.Getenv("MONGO_USERNAME"),
+        os.Getenv("MONGO_PASSWORD"),
+    ).
+    WithDatabase(os.Getenv("MONGO_DATABASE"))
+```
+
 ## API Request Context
 
 GinBoot simplifies the extraction of request and authentication context from the Gin context, making it easier to handle requests in controllers.
