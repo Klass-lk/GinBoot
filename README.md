@@ -179,6 +179,204 @@ type PasswordEncoder interface {
 
 ```
 
+## Server Configuration
+
+GinBoot provides a flexible server configuration that supports both HTTP and AWS Lambda runtimes.
+
+### Basic HTTP Server
+
+```go
+// Create a new server
+server := ginboot.New()
+
+// Add your routes
+userController := &UserController{}
+server.RegisterControllers(userController)
+
+// Start the server on port 8080
+err := server.Start(8080)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### AWS Lambda Support
+
+```go
+// Set LAMBDA_RUNTIME=true environment variable for Lambda mode
+server := ginboot.New()
+server.RegisterControllers(userController)
+server.Start(0) // port is ignored in Lambda mode
+```
+
+## Route Registration
+
+GinBoot provides a clean way to organize your routes using controllers.
+
+### Basic Controller
+
+```go
+type UserController struct {
+    userService *UserService
+}
+
+func (c *UserController) Routes() []ginboot.Route {
+    return []ginboot.Route{
+        {
+            Method:  "GET",
+            Path:    "/users",
+            Handler: c.ListUsers,
+        },
+        {
+            Method:  "POST",
+            Path:    "/users",
+            Handler: c.CreateUser,
+            Middleware: []gin.HandlerFunc{
+                validateUserMiddleware, // Route-specific middleware
+            },
+        },
+    }
+}
+```
+
+### Route Groups with Middleware
+
+```go
+server := ginboot.New()
+
+// API group with authentication
+apiGroup := ginboot.RouterGroup{
+    Path: "/api/v1",
+    Middleware: []gin.HandlerFunc{authMiddleware},
+    Controllers: []ginboot.Controller{
+        &UserController{},
+        &ProductController{},
+    },
+}
+
+// Admin group with additional middleware
+adminGroup := ginboot.RouterGroup{
+    Path: "/admin",
+    Middleware: []gin.HandlerFunc{authMiddleware, adminMiddleware},
+    Controllers: []ginboot.Controller{
+        &AdminController{},
+    },
+}
+
+server.RegisterGroups(apiGroup, adminGroup)
+```
+
+## SQL Database Support
+
+GinBoot provides a generic repository interface for SQL databases.
+
+### SQL Configuration
+
+```go
+// Create SQL configuration
+config := ginboot.NewSQLConfig().
+    WithDriver("postgres").
+    WithDSN("host=localhost port=5432 user=myuser password=mypass dbname=mydb sslmode=disable")
+
+// Connect to database
+db, err := config.Connect()
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### SQL Repository Example
+
+```go
+type User struct {
+    ID        string    `db:"id"`
+    Name      string    `db:"name"`
+    Email     string    `db:"email"`
+    CreatedAt time.Time `db:"created_at"`
+}
+
+type UserRepository struct {
+    *ginboot.SQLRepository[User]
+}
+
+// Create a new repository
+userRepo := ginboot.NewSQLRepository[User](db, "users")
+
+// Use the repository
+user := User{
+    Name:  "John Doe",
+    Email: "john@example.com",
+}
+
+// Basic CRUD operations
+err = userRepo.Save(&user)
+users, err := userRepo.FindAll()
+user, err := userRepo.FindById("123")
+err = userRepo.Delete("123")
+
+// Custom queries
+users, err := userRepo.FindByField("email", "john@example.com")
+count, err := userRepo.CountByField("name", "John")
+```
+
+## DynamoDB Support
+
+GinBoot provides DynamoDB support with a similar interface to other databases.
+
+### DynamoDB Configuration
+
+```go
+// Create DynamoDB configuration
+config := ginboot.NewDynamoConfig().
+    WithRegion("us-west-2").
+    WithCredentials(aws.NewCredentials("access_key", "secret_key"))
+
+// Connect to DynamoDB
+db, err := config.Connect()
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### DynamoDB Repository Example
+
+```go
+type Product struct {
+    ID          string  `dynamodbav:"id"`
+    Name        string  `dynamodbav:"name"`
+    Price       float64 `dynamodbav:"price"`
+    CategoryID  string  `dynamodbav:"category_id"`
+}
+
+type ProductRepository struct {
+    *ginboot.DynamoRepository[Product]
+}
+
+// Create a new repository
+productRepo := ginboot.NewDynamoRepository[Product](db, "products")
+
+// Use the repository
+product := Product{
+    Name:       "Awesome Product",
+    Price:      99.99,
+    CategoryID: "electronics",
+}
+
+// Basic CRUD operations
+err = productRepo.Save(&product)
+products, err := productRepo.FindAll()
+product, err := productRepo.FindById("123")
+err = productRepo.Delete("123")
+
+// Query operations
+products, err := productRepo.Query("category_id", "electronics")
+count, err := productRepo.CountByField("category_id", "electronics")
+
+// Batch operations
+err = productRepo.BatchSave([]Product{product1, product2})
+products, err := productRepo.BatchGet([]string{"id1", "id2"})
+```
+
 ## Contributing
 Contributions are welcome! Please read our contributing guidelines for more details.
 
