@@ -191,8 +191,12 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResp
 		SetSkip(skip).
 		SetLimit(limit)
 
-	if &pageRequest.Sort != nil {
-		opts.SetSort(pageRequest.Sort)
+	if pageRequest.Sort.Field != "" {
+		direction := 1
+		if pageRequest.Sort.Direction < 0 {
+			direction = -1
+		}
+		opts.SetSort(bson.D{{Key: pageRequest.Sort.Field, Value: direction}})
 	}
 
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
@@ -210,7 +214,7 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResp
 
 	return PageResponse[T]{
 		Contents:         items,
-		NumberOfElements: pageRequest.Size,
+		NumberOfElements: len(items),
 		Pageable:         pageRequest,
 		TotalElements:    int(total),
 		TotalPages:       totalPages,
@@ -233,8 +237,12 @@ func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters ma
 		SetSkip(skip).
 		SetLimit(limit)
 
-	if &pageRequest.Sort != nil {
-		opts.SetSort(pageRequest.Sort)
+	if pageRequest.Sort.Field != "" {
+		direction := 1
+		if pageRequest.Sort.Direction < 0 {
+			direction = -1
+		}
+		opts.SetSort(bson.D{{Key: pageRequest.Sort.Field, Value: direction}})
 	}
 
 	cursor, err := r.collection.Find(ctx, filters, opts)
@@ -252,7 +260,7 @@ func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters ma
 
 	return PageResponse[T]{
 		Contents:         items,
-		NumberOfElements: pageRequest.Size,
+		NumberOfElements: len(items),
 		Pageable:         pageRequest,
 		TotalElements:    int(total),
 		TotalPages:       totalPages,

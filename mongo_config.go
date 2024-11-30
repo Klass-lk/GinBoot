@@ -72,18 +72,22 @@ func (c *MongoConfig) BuildURI() string {
 }
 
 func (c *MongoConfig) Connect() (*mongo.Database, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	uri := c.BuildURI()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	clientOptions := options.Client().ApplyURI(c.BuildURI())
+	clientOptions := options.Client().
+		ApplyURI(uri).
+		SetServerSelectionTimeout(10 * time.Second).
+		SetConnectTimeout(10 * time.Second)
 
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to MongoDB: %v", err)
+		return nil, fmt.Errorf("failed to create MongoDB client: %v", err)
 	}
 
-	err = client.Ping(ctx, nil)
-	if err != nil {
+	// Ping the database to verify connection
+	if err = client.Ping(ctx, nil); err != nil {
 		return nil, fmt.Errorf("failed to ping MongoDB: %v", err)
 	}
 
