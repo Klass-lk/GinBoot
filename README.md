@@ -8,6 +8,7 @@ GinBoot is a utility library for the [Gin Web Framework](https://github.com/gin-
 - **API Request Handling**: Simplified API request and authentication context extraction.
 - **Error Handling**: Easily define and manage business errors.
 - **Password Encoding**: Inbuilt password hashing and matching utility for secure authentication.
+- **CORS Configuration**: Flexible CORS setup with both default and custom configurations.
 
 ## Installation
 
@@ -178,6 +179,66 @@ type PasswordEncoder interface {
 }
 
 ```
+
+## CORS Configuration
+
+GinBoot provides flexible CORS configuration options through the Server struct. You can use either default settings or customize them according to your needs.
+
+#### Default CORS Configuration
+
+For quick setup with sensible defaults:
+
+```go
+server := ginboot.New()
+server.DefaultCORS() // Allows all origins with common methods and headers
+```
+
+The default configuration:
+- Allows all origins
+- Allows common methods: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS
+- Allows common headers: Origin, Content-Length, Content-Type, Authorization
+- Sets preflight cache to 12 hours
+
+#### Custom CORS Configuration
+
+For more control over CORS settings:
+
+```go
+server := ginboot.New()
+server.CustomCORS(
+    []string{"http://localhost:3000", "https://yourdomain.com"},  // Allowed origins
+    []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},          // Allowed methods
+    []string{"Origin", "Content-Type", "Authorization", "Accept"}, // Allowed headers
+    24*time.Hour,                                                 // Preflight cache duration
+)
+```
+
+You can customize:
+- **Origins**: Specify which domains can access your API
+- **Methods**: Control which HTTP methods are allowed
+- **Headers**: Define which headers can be included in requests
+- **Max Age**: Set how long browsers should cache preflight results
+
+#### Advanced CORS Configuration
+
+For complete control over CORS settings:
+
+```go
+import "github.com/gin-contrib/cors"
+
+server := ginboot.New()
+config := cors.Config{
+    AllowOrigins:     []string{"http://localhost:3000"},
+    AllowMethods:     []string{"GET", "POST"},
+    AllowHeaders:     []string{"Origin"},
+    ExposeHeaders:    []string{"Content-Length"},
+    AllowCredentials: true,
+    MaxAge:           12 * time.Hour,
+}
+server.WithCORS(&config)
+```
+
+This gives you access to all CORS configuration options provided by gin-contrib/cors.
 
 ## Server Configuration
 

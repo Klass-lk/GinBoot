@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
@@ -33,11 +34,16 @@ func main() {
 	// Initialize controllers
 	postController := controller.NewPostController(postService)
 
-	// Setup Gin router
-	r := gin.Default()
-
 	// Create a new server instance
 	server := ginboot.New()
+
+	// Configure CORS with custom settings
+	server.CustomCORS(
+		[]string{"http://localhost:3000", "https://yourdomain.com"},  // Allow specific origins
+		[]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},          // Allow specific methods
+		[]string{"Origin", "Content-Type", "Authorization", "Accept"}, // Allow specific headers
+		24*time.Hour,                                                 // Max age of preflight requests
+	)
 
 	// Register controllers with their base paths
 	server.RegisterControllers(postController)
@@ -53,7 +59,7 @@ func main() {
 	server.RegisterGroups(apiGroup)
 
 	// Start server
-	if err := r.Run(":8080"); err != nil {
+	if err := server.Start(8080); err != nil {
 		log.Fatal(err)
 	}
 }
