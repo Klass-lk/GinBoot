@@ -21,7 +21,7 @@ type TestDocument struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-func (d TestDocument) GetID() interface{} {
+func (d TestDocument) GetID() string {
 	return d.ID
 }
 
