@@ -288,3 +288,7 @@ func (r *MongoRepository[T]) ExistsByFilters(filters map[string]interface{}) (bo
 	count, err := r.CountByFilters(filters)
 	return count > 0, err
 }
+
+func (r *MongoRepository[T]) Query() *mongo.Collection {
+	return r.collection
+}
