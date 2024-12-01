@@ -21,7 +21,7 @@ func NewMongoRepository[T Document](db *mongo.Database) *MongoRepository[T] {
 	}
 }
 
-func (r *MongoRepository[T]) FindById(id interface{}) (T, error) {
+func (r *MongoRepository[T]) FindById(id string) (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -33,7 +33,7 @@ func (r *MongoRepository[T]) FindById(id interface{}) (T, error) {
 	return result, nil
 }
 
-func (r *MongoRepository[T]) FindAllById(ids []interface{}) ([]T, error) {
+func (r *MongoRepository[T]) FindAllById(ids []string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	filter := bson.M{"_id": bson.M{"$in": ids}}
@@ -59,8 +59,7 @@ func (r *MongoRepository[T]) Save(doc T) error {
 func (r *MongoRepository[T]) SaveOrUpdate(doc T) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	opts := options.Replace().SetUpsert(true)
-	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": doc.GetID()}, doc, opts)
+	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": doc.GetID()}, doc, options.Replace().SetUpsert(true))
 	return err
 }
 
@@ -70,12 +69,12 @@ func (r *MongoRepository[T]) SaveAll(docs []T) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	var items []interface{}
+	var operations []mongo.WriteModel
 	for _, doc := range docs {
-		items = append(items, doc)
+		operation := mongo.NewReplaceOneModel().SetFilter(bson.M{"_id": doc.GetID()}).SetReplacement(doc).SetUpsert(true)
+		operations = append(operations, operation)
 	}
-	_, err := r.collection.InsertMany(ctx, items)
+	_, err := r.collection.BulkWrite(ctx, operations)
 	return err
 }
 
@@ -86,7 +85,7 @@ func (r *MongoRepository[T]) Update(doc T) error {
 	return err
 }
 
-func (r *MongoRepository[T]) Delete(id interface{}) error {
+func (r *MongoRepository[T]) Delete(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})

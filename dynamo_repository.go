@@ -29,32 +29,21 @@ func NewDynamoRepository[T Document](client *dynamodb.Client, tableName string) 
 	}
 }
 
-func (r *DynamoRepository[T]) FindById(id interface{}) (T, error) {
+func (r *DynamoRepository[T]) FindById(id string) (T, error) {
 	var result T
-	key, err := attributevalue.Marshal(id)
-	if err != nil {
-		return result, err
-	}
-
-	collection := result.GetCollectionName()
-	collectionKey, err := attributevalue.Marshal(collection)
-	if err != nil {
-		return result, err
+	key := map[string]types.AttributeValue{
+		"_id": &types.AttributeValueMemberS{Value: id},
 	}
 
 	input := &dynamodb.GetItemInput{
 		TableName: aws.String(r.tableName),
-		Key: map[string]types.AttributeValue{
-			"collection": collectionKey,
-			"id":         key,
-		},
+		Key:       key,
 	}
 
 	output, err := r.client.GetItem(context.Background(), input)
 	if err != nil {
 		return result, err
 	}
-
 	if output.Item == nil {
 		return result, fmt.Errorf("item not found")
 	}
@@ -63,24 +52,16 @@ func (r *DynamoRepository[T]) FindById(id interface{}) (T, error) {
 	return result, err
 }
 
-func (r *DynamoRepository[T]) FindAllById(ids []interface{}) ([]T, error) {
+func (r *DynamoRepository[T]) FindAllById(ids []string) ([]T, error) {
 	var results []T
-	var doc T
-	collection := doc.GetCollectionName()
-	collectionKey, err := attributevalue.Marshal(collection)
-	if err != nil {
-		return nil, err
+	if len(ids) == 0 {
+		return results, nil
 	}
 
 	keys := make([]map[string]types.AttributeValue, len(ids))
 	for i, id := range ids {
-		key, err := attributevalue.Marshal(id)
-		if err != nil {
-			return nil, err
-		}
 		keys[i] = map[string]types.AttributeValue{
-			"collection": collectionKey,
-			"id":         key,
+			"_id": &types.AttributeValueMemberS{Value: id},
 		}
 	}
 
@@ -167,28 +148,15 @@ func (r *DynamoRepository[T]) Update(doc T) error {
 	return r.Save(doc)
 }
 
-func (r *DynamoRepository[T]) Delete(id interface{}) error {
-	var doc T
-	collection := doc.GetCollectionName()
-	collectionKey, err := attributevalue.Marshal(collection)
-	if err != nil {
-		return err
-	}
-
-	key, err := attributevalue.Marshal(id)
-	if err != nil {
-		return err
-	}
-
+func (r *DynamoRepository[T]) Delete(id string) error {
 	input := &dynamodb.DeleteItemInput{
 		TableName: aws.String(r.tableName),
 		Key: map[string]types.AttributeValue{
-			"collection": collectionKey,
-			"id":         key,
+			"_id": &types.AttributeValueMemberS{Value: id},
 		},
 	}
 
-	_, err = r.client.DeleteItem(context.Background(), input)
+	_, err := r.client.DeleteItem(context.Background(), input)
 	return err
 }
 

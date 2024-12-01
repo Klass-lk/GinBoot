@@ -20,26 +20,45 @@ func NewSQLRepository[T Document](db *sql.DB) *SQLRepository[T] {
 	}
 }
 
-func (r *SQLRepository[T]) FindById(id interface{}) (T, error) {
+func (r *SQLRepository[T]) FindById(id string) (T, error) {
 	var result T
 	query := fmt.Sprintf("SELECT * FROM %s WHERE id = $1", r.tableName)
 	row := r.db.QueryRow(query, id)
-	err := r.scanRow(row, &result)
+	err := row.Scan(&result)
 	return result, err
 }
 
-func (r *SQLRepository[T]) FindAllById(ids []interface{}) ([]T, error) {
+func (r *SQLRepository[T]) FindAllById(ids []string) ([]T, error) {
+	var results []T
 	placeholders := make([]string, len(ids))
-	for i := range ids {
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
 	}
-	query := fmt.Sprintf("SELECT * FROM %s WHERE id IN (%s)", r.tableName, strings.Join(placeholders, ","))
-	rows, err := r.db.Query(query, ids...)
+
+	query := fmt.Sprintf("SELECT * FROM %s WHERE id IN (%s)",
+		r.tableName, strings.Join(placeholders, ","))
+
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return r.scanRows(rows)
+
+	for rows.Next() {
+		var result T
+		if err := rows.Scan(&result); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 func (r *SQLRepository[T]) Save(doc T) error {
@@ -115,7 +134,7 @@ func (r *SQLRepository[T]) Update(doc T) error {
 	return err
 }
 
-func (r *SQLRepository[T]) Delete(id interface{}) error {
+func (r *SQLRepository[T]) Delete(id string) error {
 	query := fmt.Sprintf("DELETE FROM %s WHERE id = $1", r.tableName)
 	_, err := r.db.Exec(query, id)
 	return err
@@ -125,7 +144,7 @@ func (r *SQLRepository[T]) FindOneBy(field string, value interface{}) (T, error)
 	var result T
 	query := fmt.Sprintf("SELECT * FROM %s WHERE %s = $1", r.tableName, field)
 	row := r.db.QueryRow(query, value)
-	err := r.scanRow(row, &result)
+	err := row.Scan(&result)
 	return result, err
 }
 
@@ -134,7 +153,7 @@ func (r *SQLRepository[T]) FindOneByFilters(filters map[string]interface{}) (T, 
 	conditions, values := r.buildWhereClause(filters)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", r.tableName, conditions)
 	row := r.db.QueryRow(query, values...)
-	err := r.scanRow(row, &result)
+	err := row.Scan(&result)
 	return result, err
 }
 
@@ -145,7 +164,18 @@ func (r *SQLRepository[T]) FindBy(field string, value interface{}) ([]T, error) 
 		return nil, err
 	}
 	defer rows.Close()
-	return r.scanRows(rows)
+	var results []T
+	for rows.Next() {
+		var result T
+		if err := rows.Scan(&result); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 func (r *SQLRepository[T]) FindByFilters(filters map[string]interface{}) ([]T, error) {
@@ -156,7 +186,18 @@ func (r *SQLRepository[T]) FindByFilters(filters map[string]interface{}) ([]T, e
 		return nil, err
 	}
 	defer rows.Close()
-	return r.scanRows(rows)
+	var results []T
+	for rows.Next() {
+		var result T
+		if err := rows.Scan(&result); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 func (r *SQLRepository[T]) FindAll(options ...interface{}) ([]T, error) {
@@ -166,7 +207,18 @@ func (r *SQLRepository[T]) FindAll(options ...interface{}) ([]T, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	return r.scanRows(rows)
+	var results []T
+	for rows.Next() {
+		var result T
+		if err := rows.Scan(&result); err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 func (r *SQLRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error) {
@@ -179,8 +231,15 @@ func (r *SQLRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageRespon
 	}
 	defer rows.Close()
 
-	items, err := r.scanRows(rows)
-	if err != nil {
+	var results []T
+	for rows.Next() {
+		var result T
+		if err := rows.Scan(&result); err != nil {
+			return PageResponse[T]{}, err
+		}
+		results = append(results, result)
+	}
+	if err = rows.Err(); err != nil {
 		return PageResponse[T]{}, err
 	}
 
@@ -191,7 +250,7 @@ func (r *SQLRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageRespon
 	}
 
 	return PageResponse[T]{
-		Contents:         items,
+		Contents:         results,
 		NumberOfElements: pageRequest.Size,
 		Pageable:         pageRequest,
 		TotalElements:    total,
@@ -213,8 +272,15 @@ func (r *SQLRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[
 	}
 	defer rows.Close()
 
-	items, err := r.scanRows(rows)
-	if err != nil {
+	var results []T
+	for rows.Next() {
+		var result T
+		if err := rows.Scan(&result); err != nil {
+			return PageResponse[T]{}, err
+		}
+		results = append(results, result)
+	}
+	if err = rows.Err(); err != nil {
 		return PageResponse[T]{}, err
 	}
 
@@ -226,7 +292,7 @@ func (r *SQLRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[
 	}
 
 	return PageResponse[T]{
-		Contents:         items,
+		Contents:         results,
 		NumberOfElements: pageRequest.Size,
 		Pageable:         pageRequest,
 		TotalElements:    total,
