@@ -1,80 +1,92 @@
 package ginboot
 
-import "github.com/gin-gonic/gin"
+import (
+	"path"
 
-type Route struct {
-	Method     string
-	Path       string
-	Handler    gin.HandlerFunc
-	Middleware []gin.HandlerFunc
+	"github.com/gin-gonic/gin"
+)
+
+// ControllerGroup represents a group of routes with common middleware and path prefix
+type ControllerGroup struct {
+	group *gin.RouterGroup
 }
 
+// Controller interface defines methods that controllers must implement
 type Controller interface {
-	Routes() []Route
+	Register(group *ControllerGroup)
 }
 
-type RouterGroup struct {
-	Path        string
-	Middleware  []gin.HandlerFunc
-	Controllers []Controller
-}
-
-func (s *Server) RegisterControllers(controllers ...Controller) {
-	for _, controller := range controllers {
-		for _, route := range controller.Routes() {
-			handlers := route.Middleware
-			handlers = append(handlers, route.Handler)
-
-			switch route.Method {
-			case "GET":
-				s.engine.GET(route.Path, handlers...)
-			case "POST":
-				s.engine.POST(route.Path, handlers...)
-			case "PUT":
-				s.engine.PUT(route.Path, handlers...)
-			case "DELETE":
-				s.engine.DELETE(route.Path, handlers...)
-			case "PATCH":
-				s.engine.PATCH(route.Path, handlers...)
-			case "OPTIONS":
-				s.engine.OPTIONS(route.Path, handlers...)
-			case "HEAD":
-				s.engine.HEAD(route.Path, handlers...)
-			}
-		}
+// Group creates a new route group with the given path and middleware
+func (s *Server) Group(relativePath string, middleware ...gin.HandlerFunc) *ControllerGroup {
+	fullPath := path.Join(s.basePath, relativePath)
+	return &ControllerGroup{
+		group: s.engine.Group(fullPath, middleware...),
 	}
 }
 
-func (s *Server) RegisterGroups(groups ...RouterGroup) {
-	for _, group := range groups {
-		routerGroup := s.engine.Group(group.Path)
+// GET registers a GET route
+func (g *ControllerGroup) GET(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
+	handlers := append(middleware, handler)
+	g.group.GET(relativePath, handlers...)
+}
 
-		if len(group.Middleware) > 0 {
-			routerGroup.Use(group.Middleware...)
-		}
+// POST registers a POST route
+func (g *ControllerGroup) POST(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
+	handlers := append(middleware, handler)
+	g.group.POST(relativePath, handlers...)
+}
 
-		for _, controller := range group.Controllers {
-			for _, route := range controller.Routes() {
-				handlers := route.Middleware
-				handlers = append(handlers, route.Handler)
+// PUT registers a PUT route
+func (g *ControllerGroup) PUT(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
+	handlers := append(middleware, handler)
+	g.group.PUT(relativePath, handlers...)
+}
 
-				switch route.Method {
-				case "GET":
-					routerGroup.GET(route.Path, handlers...)
-				case "POST":
-					routerGroup.POST(route.Path, handlers...)
-				case "PUT":
-					routerGroup.PUT(route.Path, handlers...)
-				case "DELETE":
-					routerGroup.DELETE(route.Path, handlers...)
-				case "PATCH":
-					routerGroup.PATCH(route.Path, handlers...)
-				case "OPTIONS":
-					routerGroup.OPTIONS(route.Path, handlers...)
-				case "HEAD":
-					routerGroup.HEAD(route.Path, handlers...)
-				}
-			}
-		}
+// DELETE registers a DELETE route
+func (g *ControllerGroup) DELETE(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
+	handlers := append(middleware, handler)
+	g.group.DELETE(relativePath, handlers...)
+}
+
+// PATCH registers a PATCH route
+func (g *ControllerGroup) PATCH(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
+	handlers := append(middleware, handler)
+	g.group.PATCH(relativePath, handlers...)
+}
+
+// OPTIONS registers an OPTIONS route
+func (g *ControllerGroup) OPTIONS(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
+	handlers := append(middleware, handler)
+	g.group.OPTIONS(relativePath, handlers...)
+}
+
+// HEAD registers a HEAD route
+func (g *ControllerGroup) HEAD(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
+	handlers := append(middleware, handler)
+	g.group.HEAD(relativePath, handlers...)
+}
+
+// Group creates a new sub-group with the given path and middleware
+func (g *ControllerGroup) Group(relativePath string, middleware ...gin.HandlerFunc) *ControllerGroup {
+	return &ControllerGroup{
+		group: g.group.Group(relativePath, middleware...),
+	}
+}
+
+// Use adds middleware to the group
+func (g *ControllerGroup) Use(middleware ...gin.HandlerFunc) {
+	g.group.Use(middleware...)
+}
+
+// RegisterController registers a controller with the group at the specified path
+func (s *Server) RegisterController(relativePath string, controller Controller) {
+	fullPath := path.Join(s.basePath, relativePath)
+	controller.Register(&ControllerGroup{group: s.engine.Group(fullPath)})
+}
+
+// RegisterControllers registers multiple controllers at the specified path
+func (s *Server) RegisterControllers(relativePath string, controllers ...Controller) {
+	for _, controller := range controllers {
+		s.RegisterController(relativePath, controller)
 	}
 }

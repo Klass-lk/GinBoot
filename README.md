@@ -240,6 +240,160 @@ server.WithCORS(&config)
 
 This gives you access to all CORS configuration options provided by gin-contrib/cors.
 
+## Routing
+
+GinBoot provides a flexible and intuitive routing system that follows Gin's style while adding powerful controller-based routing capabilities.
+
+### Base Path Configuration
+
+You can set a base path for all routes in your application:
+
+```go
+server := ginboot.New()
+server.SetBasePath("/api/v1") // All routes will be prefixed with /api/v1
+```
+
+### Controller Registration
+
+Controllers implement the `Controller` interface which requires a `Register` method:
+
+```go
+type Controller interface {
+    Register(group *ControllerGroup)
+}
+```
+
+Example controller implementation:
+
+```go
+type UserController struct {
+    userService *service.UserService
+}
+
+func (c *UserController) Register(group *ginboot.ControllerGroup) {
+    // Public routes
+    group.GET("", c.ListUsers)
+    group.GET("/:id", c.GetUser)
+    
+    // Protected routes
+    protected := group.Group("", middleware.Auth())
+    {
+        protected.POST("", c.CreateUser)
+        protected.PUT("/:id", c.UpdateUser)
+        protected.DELETE("/:id", c.DeleteUser)
+    }
+}
+```
+
+### Registering Controllers
+
+Register controllers with their base paths:
+
+```go
+// Initialize controllers
+userController := NewUserController(userService)
+postController := NewPostController(postService)
+
+// Register with paths
+server.RegisterController("/users", userController) // -> /api/v1/users
+server.RegisterController("/posts", postController) // -> /api/v1/posts
+```
+
+### Route Groups
+
+Create route groups with shared middleware:
+
+```go
+// Create a group with middleware
+adminGroup := server.Group("/admin", middleware.Auth(), middleware.AdminOnly())
+{
+    adminGroup.GET("/stats", adminController.GetStats)
+    adminGroup.POST("/settings", adminController.UpdateSettings)
+}
+
+// Nested groups
+apiGroup := server.Group("/api")
+v1Group := apiGroup.Group("/v1")
+{
+    v1Group.GET("/health", healthCheck)
+}
+```
+
+### HTTP Methods
+
+GinBoot supports all standard HTTP methods:
+
+```go
+group.GET("", handler)      // GET request
+group.POST("", handler)     // POST request
+group.PUT("", handler)      // PUT request
+group.DELETE("", handler)   // DELETE request
+group.PATCH("", handler)    // PATCH request
+group.OPTIONS("", handler)  // OPTIONS request
+group.HEAD("", handler)     // HEAD request
+```
+
+### Middleware
+
+Add middleware at different levels:
+
+```go
+// Server-wide middleware
+server.Use(middleware.Logger())
+
+// Group middleware
+group := server.Group("/admin", middleware.Auth())
+
+// Route-specific middleware
+group.GET("/users", middleware.Cache(), controller.ListUsers)
+```
+
+### Path Parameters
+
+Use Gin's path parameter syntax:
+
+```go
+group.GET("/:id", controller.GetUser)           // /users/123
+group.GET("/:type/*path", controller.GetFile)   // /files/image/avatar.png
+```
+
+### Full Example
+
+```go
+func main() {
+    server := ginboot.New()
+    
+    // Set base path for all routes
+    server.SetBasePath("/api/v1")
+    
+    // Global middleware
+    server.Use(middleware.Logger())
+    
+    // Initialize controllers
+    userController := NewUserController(userService)
+    postController := NewPostController(postService)
+    
+    // Register controllers
+    server.RegisterController("/users", userController)
+    server.RegisterController("/posts", postController)
+    
+    // Create admin group
+    adminGroup := server.Group("/admin", middleware.Auth(), middleware.AdminOnly())
+    adminController := NewAdminController(adminService)
+    adminController.Register(adminGroup)
+    
+    // Start server
+    server.Start(8080)
+}
+```
+
+This setup creates a clean, maintainable API structure with routes like:
+- GET /api/v1/users
+- POST /api/v1/posts
+- GET /api/v1/admin/stats
+
+The routing system combines the simplicity of Gin's routing with the power of controller-based organization, making it easy to structure and maintain your API endpoints.
+
 ## Server Configuration
 
 GinBoot provides a flexible server configuration that supports both HTTP and AWS Lambda runtimes.

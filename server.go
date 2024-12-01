@@ -24,6 +24,7 @@ type Server struct {
 	engine     *gin.Engine
 	runtime    Runtime
 	corsConfig *cors.Config
+	basePath   string
 }
 
 func New() *Server {
@@ -67,6 +68,11 @@ func (s *Server) startLambda() error {
 
 func (s *Server) SetRuntime(runtime Runtime) {
 	s.runtime = runtime
+}
+
+func (s *Server) SetBasePath(path string) *Server {
+	s.basePath = path
+	return s
 }
 
 func (s *Server) WithCORS(config *cors.Config) *Server {

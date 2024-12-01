@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"github.com/klass-lk/ginboot/example/internal/middleware"
 	"net/http"
 	"strconv"
 	"strings"
@@ -15,34 +16,24 @@ type PostController struct {
 	postService *service.PostService
 }
 
-func (c *PostController) Routes() []ginboot.Route {
-	return []ginboot.Route{
-		{
-			Method:  http.MethodPost,
-			Path:    "",
-			Handler: c.CreatePost,
-		},
-		{
-			Method:  http.MethodGet,
-			Path:    "/:id",
-			Handler: c.GetPost,
-		},
-		{
-			Method:  http.MethodPut,
-			Path:    "/:id",
-			Handler: c.UpdatePost,
-		},
-		{
-			Method:  http.MethodDelete,
-			Path:    "/:id",
-			Handler: c.DeletePost,
-		},
-	}
-}
-
 func NewPostController(postService *service.PostService) *PostController {
 	return &PostController{
 		postService: postService,
+	}
+}
+
+// Register implements the new Controller interface
+func (c *PostController) Register(group *ginboot.ControllerGroup) {
+	group.GET("", c.GetPosts)
+	group.GET("/:id", c.GetPost)
+	group.GET("/author/:author", c.GetPostsByAuthor)
+	group.GET("/tags/:tags", c.GetPostsByTags)
+
+	protected := group.Group("", middleware.AuthMiddleware())
+	{
+		protected.POST("", c.CreatePost)
+		protected.PUT("/:id", c.UpdatePost)
+		protected.DELETE("/:id", c.DeletePost)
 	}
 }
 
@@ -144,17 +135,4 @@ func (c *PostController) GetPostsByTags(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, posts)
-}
-
-func (c *PostController) RegisterRoutes(router *gin.RouterGroup) {
-	router.GET("", c.GetPosts)
-	router.GET("/:id", c.GetPost)
-	router.GET("/author/:author", c.GetPostsByAuthor)
-	router.GET("/tags", c.GetPostsByTags)
-}
-
-func (c *PostController) RegisterProtectedRoutes(router *gin.RouterGroup) {
-	router.POST("", c.CreatePost)
-	router.PUT("/:id", c.UpdatePost)
-	router.DELETE("/:id", c.DeletePost)
 }
