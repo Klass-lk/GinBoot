@@ -81,7 +81,7 @@ type User struct {
     Name string `bson:"name"`
 }
 
-func (u User) GetID() interface{}     { return u.ID }
+func (u User) GetID() string     { return u.ID }
 func (u User) SetID(id interface{})   { u.ID = id.(string) }
 func (u *User) GetCollectionName() string { return "users" }
 

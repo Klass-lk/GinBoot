@@ -16,7 +16,7 @@ type Post struct {
 	UpdatedAt time.Time          `bson:"updated_at" json:"updatedAt"`
 }
 
-func (p Post) GetID() interface{} {
+func (p Post) GetID() string {
 	return p.ID
 }
 
