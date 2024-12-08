@@ -1,6 +1,58 @@
-# GinBoot Library for Gin Framework
+# Ginboot Framework
 
-GinBoot is a utility library for the [Gin Web Framework](https://github.com/gin-gonic/gin) that simplifies common tasks in web application development, including database operations, API request handling, and error management. The library is designed to enhance productivity by providing reusable, customizable components.
+A lightweight and powerful Go web framework built on top of Gin, designed for building scalable web applications with MongoDB integration and AWS Lambda support.
+
+## Setup
+
+### Prerequisites
+- Go 1.21 or later
+- MongoDB (for local development)
+- AWS SAM CLI (for deployment)
+- AWS credentials configured
+
+### Installation
+
+1. Install the Ginboot CLI tool:
+```bash
+go install github.com/klass-lk/ginboot-cli@latest
+```
+
+2. Create a new project:
+```bash
+# Create a new project
+ginboot new myproject
+
+# Navigate to project directory
+cd myproject
+
+# Initialize dependencies
+go mod tidy
+```
+
+3. Run locally:
+```bash
+go run main.go
+```
+Your API will be available at `http://localhost:8080/api/v1`
+
+### Build and Deploy
+
+To deploy your application to AWS Lambda:
+
+```bash
+# Build the project for AWS Lambda
+ginboot build
+
+# Deploy to AWS
+ginboot deploy
+```
+
+On first deployment, you'll be prompted for:
+- Stack name (defaults to project name)
+- AWS Region
+- S3 bucket configuration
+
+These settings will be saved in `ginboot-app.yml` for future deployments.
 
 ## Features
 
