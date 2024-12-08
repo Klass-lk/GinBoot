@@ -1,10 +1,11 @@
 package controller
 
 import (
-	"github.com/klass-lk/ginboot/example/internal/middleware"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/klass-lk/ginboot/example/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
@@ -38,7 +39,6 @@ func (c *PostController) Register(group *ginboot.ControllerGroup) {
 }
 
 func (c *PostController) CreatePost(ctx *ginboot.Context) {
-	ctx.BuildRequest()
 	var post model.Post
 	if err := ctx.ShouldBindJSON(&post); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
