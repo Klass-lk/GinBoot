@@ -29,7 +29,7 @@ type Server struct {
 
 func New() *Server {
 	runtime := RuntimeHTTP
-	if os.Getenv("LAMBDA_RUNTIME") == "true" {
+	if os.Getenv("LAMBDA_TASK_ROOT") != "" {
 		runtime = RuntimeLambda
 	}
 
