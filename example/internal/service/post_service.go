@@ -20,7 +20,7 @@ func NewPostService(postRepo *repository.PostRepository) *PostService {
 }
 
 func (s *PostService) CreatePost(post model.Post) (model.Post, error) {
-	post.ID = primitive.NewObjectID()
+	post.ID = primitive.NewObjectID().Hex()
 	post.CreatedAt = time.Now()
 	post.UpdatedAt = time.Now()
 
@@ -29,20 +29,11 @@ func (s *PostService) CreatePost(post model.Post) (model.Post, error) {
 }
 
 func (s *PostService) GetPostById(id string) (model.Post, error) {
-	objectId, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return model.Post{}, err
-	}
-	return s.postRepo.FindById(objectId)
+	return s.postRepo.FindById(id)
 }
 
 func (s *PostService) UpdatePost(id string, post model.Post) error {
-	objectId, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-
-	existingPost, err := s.postRepo.FindById(objectId)
+	existingPost, err := s.postRepo.FindById(id)
 	if err != nil {
 		return err
 	}
@@ -55,11 +46,7 @@ func (s *PostService) UpdatePost(id string, post model.Post) error {
 }
 
 func (s *PostService) DeletePost(id string) error {
-	objectId, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-	return s.postRepo.Delete(objectId)
+	return s.postRepo.Delete(id)
 }
 
 func (s *PostService) GetPosts(page, size int, sort ginboot.SortField) (ginboot.PageResponse[model.Post], error) {
