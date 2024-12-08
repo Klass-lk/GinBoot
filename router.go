@@ -24,46 +24,49 @@ func (s *Server) Group(relativePath string, middleware ...gin.HandlerFunc) *Cont
 	}
 }
 
+// Handle wraps gin handler to use custom context
+func (g *ControllerGroup) Handle(httpMethod, relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	wrappedHandler := func(c *gin.Context) {
+		ctx := NewContext(c)
+		handler(ctx)
+	}
+	handlers := append(middleware, wrappedHandler)
+	g.group.Handle(httpMethod, relativePath, handlers...)
+}
+
 // GET registers a GET route
-func (g *ControllerGroup) GET(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
-	handlers := append(middleware, handler)
-	g.group.GET(relativePath, handlers...)
+func (g *ControllerGroup) GET(relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	g.Handle("GET", relativePath, handler, middleware...)
 }
 
 // POST registers a POST route
-func (g *ControllerGroup) POST(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
-	handlers := append(middleware, handler)
-	g.group.POST(relativePath, handlers...)
+func (g *ControllerGroup) POST(relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	g.Handle("POST", relativePath, handler, middleware...)
 }
 
 // PUT registers a PUT route
-func (g *ControllerGroup) PUT(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
-	handlers := append(middleware, handler)
-	g.group.PUT(relativePath, handlers...)
+func (g *ControllerGroup) PUT(relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	g.Handle("PUT", relativePath, handler, middleware...)
 }
 
 // DELETE registers a DELETE route
-func (g *ControllerGroup) DELETE(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
-	handlers := append(middleware, handler)
-	g.group.DELETE(relativePath, handlers...)
+func (g *ControllerGroup) DELETE(relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	g.Handle("DELETE", relativePath, handler, middleware...)
 }
 
 // PATCH registers a PATCH route
-func (g *ControllerGroup) PATCH(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
-	handlers := append(middleware, handler)
-	g.group.PATCH(relativePath, handlers...)
+func (g *ControllerGroup) PATCH(relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	g.Handle("PATCH", relativePath, handler, middleware...)
 }
 
 // OPTIONS registers an OPTIONS route
-func (g *ControllerGroup) OPTIONS(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
-	handlers := append(middleware, handler)
-	g.group.OPTIONS(relativePath, handlers...)
+func (g *ControllerGroup) OPTIONS(relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	g.Handle("OPTIONS", relativePath, handler, middleware...)
 }
 
 // HEAD registers a HEAD route
-func (g *ControllerGroup) HEAD(relativePath string, handler gin.HandlerFunc, middleware ...gin.HandlerFunc) {
-	handlers := append(middleware, handler)
-	g.group.HEAD(relativePath, handlers...)
+func (g *ControllerGroup) HEAD(relativePath string, handler func(*Context), middleware ...gin.HandlerFunc) {
+	g.Handle("HEAD", relativePath, handler, middleware...)
 }
 
 // Group creates a new sub-group with the given path and middleware

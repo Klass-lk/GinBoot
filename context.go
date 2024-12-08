@@ -8,7 +8,26 @@ import (
 	"strings"
 )
 
-func GetAuthContext(c *gin.Context) (AuthContext, error) {
+type AuthContext struct {
+	UserID    string
+	UserEmail string
+	Roles     []string
+	Claims    map[string]interface{}
+}
+
+type Context struct {
+	*gin.Context
+	authContext *AuthContext
+}
+
+func NewContext(c *gin.Context) *Context {
+	return &Context{
+		Context: c,
+	}
+}
+
+// GetAuthContext returns the current auth context
+func (c *Context) GetAuthContext() (AuthContext, error) {
 	userId, exists := c.Get("user_id")
 	if !exists {
 		c.AbortWithStatus(http.StatusUnauthorized)
@@ -20,25 +39,20 @@ func GetAuthContext(c *gin.Context) (AuthContext, error) {
 		return AuthContext{}, errors.New("operation not permitted")
 	}
 	return AuthContext{
-		UserId: userId.(string),
-		Role:   role.(string),
+		UserID: userId.(string),
+		Roles:  []string{role.(string)},
 	}, nil
 }
 
-func BuildAuthRequestContext[T interface{}](c *gin.Context) (T, AuthContext, error) {
-	request, err := BuildRequest[T](c)
-	if err != nil {
-		return request, AuthContext{}, err
-	}
-	authContext, err := GetAuthContext(c)
-	if err != nil {
+func (c *Context) GetRequest(request interface{}) error {
+	if err := c.ShouldBind(request); err != nil {
 		c.AbortWithStatus(http.StatusBadRequest)
-		return request, AuthContext{}, err
+		return errors.New("bad request: " + err.Error())
 	}
-	return request, authContext, nil
+	return nil
 }
 
-func BuildPageRequest(c *gin.Context) PageRequest {
+func (c *Context) GetPageRequest() PageRequest {
 	pageString := c.DefaultQuery("page", "1")
 	sizeString := c.DefaultQuery("size", "10")
 	sortString := c.DefaultQuery("sort", "_id,asc")
@@ -69,13 +83,4 @@ func BuildPageRequest(c *gin.Context) PageRequest {
 	}
 
 	return PageRequest{Page: int(page), Size: int(size), Sort: sort}
-}
-
-func BuildRequest[T interface{}](c *gin.Context) (T, error) {
-	var request T
-	if c.ShouldBindJSON(&request) != nil {
-		c.AbortWithStatus(http.StatusBadRequest)
-		return request, errors.New("bad request")
-	}
-	return request, nil
 }

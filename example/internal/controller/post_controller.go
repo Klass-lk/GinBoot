@@ -37,7 +37,8 @@ func (c *PostController) Register(group *ginboot.ControllerGroup) {
 	}
 }
 
-func (c *PostController) CreatePost(ctx *gin.Context) {
+func (c *PostController) CreatePost(ctx *ginboot.Context) {
+	ctx.BuildRequest()
 	var post model.Post
 	if err := ctx.ShouldBindJSON(&post); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -53,7 +54,7 @@ func (c *PostController) CreatePost(ctx *gin.Context) {
 	ctx.JSON(http.StatusCreated, createdPost)
 }
 
-func (c *PostController) GetPost(ctx *gin.Context) {
+func (c *PostController) GetPost(ctx *ginboot.Context) {
 	id := ctx.Param("id")
 	post, err := c.postService.GetPostById(id)
 	if err != nil {
@@ -64,7 +65,7 @@ func (c *PostController) GetPost(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, post)
 }
 
-func (c *PostController) UpdatePost(ctx *gin.Context) {
+func (c *PostController) UpdatePost(ctx *ginboot.Context) {
 	id := ctx.Param("id")
 	var post model.Post
 	if err := ctx.ShouldBindJSON(&post); err != nil {
@@ -80,7 +81,7 @@ func (c *PostController) UpdatePost(ctx *gin.Context) {
 	ctx.Status(http.StatusOK)
 }
 
-func (c *PostController) DeletePost(ctx *gin.Context) {
+func (c *PostController) DeletePost(ctx *ginboot.Context) {
 	id := ctx.Param("id")
 	if err := c.postService.DeletePost(id); err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -90,7 +91,7 @@ func (c *PostController) DeletePost(ctx *gin.Context) {
 	ctx.Status(http.StatusOK)
 }
 
-func (c *PostController) GetPosts(ctx *gin.Context) {
+func (c *PostController) GetPosts(ctx *ginboot.Context) {
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(ctx.DefaultQuery("size", "10"))
 	sortField := ctx.DefaultQuery("sort", "created_at")
@@ -108,7 +109,7 @@ func (c *PostController) GetPosts(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, posts)
 }
 
-func (c *PostController) GetPostsByAuthor(ctx *gin.Context) {
+func (c *PostController) GetPostsByAuthor(ctx *ginboot.Context) {
 	author := ctx.Param("author")
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(ctx.DefaultQuery("size", "10"))
@@ -122,7 +123,7 @@ func (c *PostController) GetPostsByAuthor(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, posts)
 }
 
-func (c *PostController) GetPostsByTags(ctx *gin.Context) {
+func (c *PostController) GetPostsByTags(ctx *ginboot.Context) {
 	tagsStr := ctx.Query("tags")
 	tags := strings.Split(tagsStr, ",")
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
