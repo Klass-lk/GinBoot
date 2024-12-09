@@ -26,8 +26,8 @@ func TestServer_SetBasePath(t *testing.T) {
 	server.SetBasePath("/api/v1")
 
 	// Register route after setting base path
-	server.Group("").GET("/test", func(c *Context) {
-		c.Status(200)
+	server.Group("").GET("/test", func(c *Context) (string, error) {
+		return "test", nil
 	})
 
 	w := httptest.NewRecorder()
