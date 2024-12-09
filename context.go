@@ -84,3 +84,20 @@ func (c *Context) GetPageRequest() PageRequest {
 
 	return PageRequest{Page: int(page), Size: int(size), Sort: sort}
 }
+
+func (c *Context) SendError(err error) {
+	var customErr ApiError
+	if errors.As(err, &customErr) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error_code": customErr.ErrorCode,
+			"message":    customErr.Message,
+		})
+		return
+	}
+	// Handle other types of errors here
+	c.JSON(http.StatusInternalServerError, gin.H{
+		"error_code": "Internal Server Error",
+		"message":    "An unknown error occurred",
+	})
+	return
+}

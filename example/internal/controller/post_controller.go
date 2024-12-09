@@ -1,13 +1,11 @@
 package controller
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/klass-lk/ginboot/example/internal/middleware"
 
-	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
 	"github.com/klass-lk/ginboot/example/internal/model"
 	"github.com/klass-lk/ginboot/example/internal/service"
@@ -23,7 +21,6 @@ func NewPostController(postService *service.PostService) *PostController {
 	}
 }
 
-// Register implements the new Controller interface
 func (c *PostController) Register(group *ginboot.ControllerGroup) {
 	group.GET("", c.GetPosts)
 	group.GET("/:id", c.GetPost)
@@ -38,102 +35,54 @@ func (c *PostController) Register(group *ginboot.ControllerGroup) {
 	}
 }
 
-func (c *PostController) CreatePost(ctx *ginboot.Context) {
-	var post model.Post
-	if err := ctx.ShouldBindJSON(&post); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+func (c *PostController) CreatePost(request model.Post) (model.Post, error) {
+	return c.postService.CreatePost(request)
+}
 
-	createdPost, err := c.postService.CreatePost(post)
+func (c *PostController) GetPost(ctx *ginboot.Context) (model.Post, error) {
+	id := ctx.Param("id")
+	return c.postService.GetPostById(id)
+}
+
+func (c *PostController) UpdatePost(ctx *ginboot.Context, post model.Post) (model.Post, error) {
+	id := ctx.Param("id")
+	return post, c.postService.UpdatePost(id, post)
+}
+
+func (c *PostController) DeletePost(ctx *ginboot.Context) (ginboot.EmptyResponse, error) {
+	id := ctx.Param("id")
+	err := c.postService.DeletePost(id)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return ginboot.EmptyResponse{}, err
 	}
-
-	ctx.JSON(http.StatusCreated, createdPost)
+	return ginboot.EmptyResponse{}, nil
 }
 
-func (c *PostController) GetPost(ctx *ginboot.Context) {
-	id := ctx.Param("id")
-	post, err := c.postService.GetPostById(id)
-	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, post)
-}
-
-func (c *PostController) UpdatePost(ctx *ginboot.Context) {
-	id := ctx.Param("id")
-	var post model.Post
-	if err := ctx.ShouldBindJSON(&post); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if err := c.postService.UpdatePost(id, post); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.Status(http.StatusOK)
-}
-
-func (c *PostController) DeletePost(ctx *ginboot.Context) {
-	id := ctx.Param("id")
-	if err := c.postService.DeletePost(id); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.Status(http.StatusOK)
-}
-
-func (c *PostController) GetPosts(ctx *ginboot.Context) {
+func (c *PostController) GetPosts(ctx *ginboot.Context) (ginboot.PageResponse[model.Post], error) {
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(ctx.DefaultQuery("size", "10"))
 	sortField := ctx.DefaultQuery("sort", "created_at")
 	sortDir, _ := strconv.Atoi(ctx.DefaultQuery("direction", "-1"))
 
-	posts, err := c.postService.GetPosts(page, size, ginboot.SortField{
+	return c.postService.GetPosts(page, size, ginboot.SortField{
 		Field:     sortField,
 		Direction: sortDir,
 	})
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, posts)
 }
 
-func (c *PostController) GetPostsByAuthor(ctx *ginboot.Context) {
+func (c *PostController) GetPostsByAuthor(ctx *ginboot.Context) (ginboot.PageResponse[model.Post], error) {
 	author := ctx.Param("author")
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(ctx.DefaultQuery("size", "10"))
 
-	posts, err := c.postService.GetPostsByAuthor(author, page, size)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, posts)
+	return c.postService.GetPostsByAuthor(author, page, size)
 }
 
-func (c *PostController) GetPostsByTags(ctx *ginboot.Context) {
+func (c *PostController) GetPostsByTags(ctx *ginboot.Context) (ginboot.PageResponse[model.Post], error) {
 	tagsStr := ctx.Query("tags")
 	tags := strings.Split(tagsStr, ",")
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(ctx.DefaultQuery("size", "10"))
 
-	posts, err := c.postService.GetPostsByTags(tags, page, size)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, posts)
+	return c.postService.GetPostsByTags(tags, page, size)
 }

@@ -1,159 +1,265 @@
 package ginboot
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
 
-type testController struct {
-	handleCalled bool
+type TestRouterRequest struct {
+	Name string `json:"name"`
 }
 
-func (c *testController) Register(group *ControllerGroup) {
-	group.GET("/test", c.handleTest)
+type TestResponse struct {
+	Message string `json:"message"`
 }
 
-func (c *testController) handleTest(ctx *Context) {
-	c.handleCalled = true
-	ctx.JSON(200, gin.H{"status": "ok"})
-}
-
-func TestServer_RegisterController(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	server := New()
-	controller := &testController{}
-
-	server.RegisterController("/api", controller)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/test", nil)
-	server.engine.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, controller.handleCalled)
-}
-
-func TestControllerGroup_Methods(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	server := New()
-
-	methods := []struct {
-		name   string
-		method string
-		setup  func(*ControllerGroup)
-	}{
-		{
-			name:   "GET",
-			method: "GET",
-			setup: func(g *ControllerGroup) {
-				g.GET("/test", func(c *Context) { c.Status(200) })
-			},
-		},
-		{
-			name:   "POST",
-			method: "POST",
-			setup: func(g *ControllerGroup) {
-				g.POST("/test", func(c *Context) { c.Status(200) })
-			},
-		},
-		{
-			name:   "PUT",
-			method: "PUT",
-			setup: func(g *ControllerGroup) {
-				g.PUT("/test", func(c *Context) { c.Status(200) })
-			},
-		},
-		{
-			name:   "DELETE",
-			method: "DELETE",
-			setup: func(g *ControllerGroup) {
-				g.DELETE("/test", func(c *Context) { c.Status(200) })
-			},
-		},
-		{
-			name:   "PATCH",
-			method: "PATCH",
-			setup: func(g *ControllerGroup) {
-				g.PATCH("/test", func(c *Context) { c.Status(200) })
-			},
-		},
-		{
-			name:   "OPTIONS",
-			method: "OPTIONS",
-			setup: func(g *ControllerGroup) {
-				g.OPTIONS("/test", func(c *Context) { c.Status(200) })
-			},
-		},
-		{
-			name:   "HEAD",
-			method: "HEAD",
-			setup: func(g *ControllerGroup) {
-				g.HEAD("/test", func(c *Context) { c.Status(200) })
-			},
-		},
-	}
-
-	for _, tt := range methods {
-		t.Run(tt.name, func(t *testing.T) {
-			group := server.Group("/api")
-			tt.setup(group)
-
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(tt.method, "/api/test", nil)
-			server.engine.ServeHTTP(w, req)
-
-			assert.Equal(t, http.StatusOK, w.Code)
-		})
-	}
-}
-
-func TestControllerGroup_Group(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	server := New()
-
-	// Create nested groups
-	api := server.Group("/api")
-	v1 := api.Group("/v1")
-	users := v1.Group("/users")
-
-	// Add handler to nested group
-	users.GET("", func(c *Context) {
-		c.JSON(200, gin.H{"path": "/api/v1/users"})
-	})
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/v1/users", nil)
-	server.engine.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-func TestControllerGroup_Middleware(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	server := New()
-
-	// Create middleware
-	called := false
-	middleware := func(c *gin.Context) {
-		called = true
+// Mock middleware for testing
+func testMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("middleware", "called")
 		c.Next()
 	}
+}
 
-	// Add middleware to group
-	api := server.Group("/api")
-	api.Use(middleware)
-	api.GET("/test", func(c *Context) {
-		c.Status(200)
+func TestRouter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("server group creation", func(t *testing.T) {
+		server := &Server{
+			engine:   gin.New(),
+			basePath: "/api",
+		}
+		group := server.Group("/v1")
+		assert.NotNil(t, group)
+		assert.Equal(t, "/api/v1", group.group.BasePath())
 	})
 
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/test", nil)
-	server.engine.ServeHTTP(w, req)
+	t.Run("controller registration", func(t *testing.T) {
+		server := &Server{
+			engine: gin.New(),
+		}
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.True(t, called)
+		mockController := &MockController{}
+		server.RegisterController("/test", mockController)
+		assert.True(t, mockController.registerCalled)
+	})
+
+	t.Run("handler wrapper tests", func(t *testing.T) {
+		tests := []struct {
+			name         string
+			handler      interface{}
+			method       string
+			path         string
+			body         string
+			expectedCode int
+			expectedBody string
+			middleware   []gin.HandlerFunc
+		}{
+			{
+				name: "no args handler",
+				handler: func() (*TestResponse, error) {
+					return &TestResponse{Message: "success"}, nil
+				},
+				method:       "GET",
+				expectedCode: http.StatusOK,
+				expectedBody: `{"message":"success"}`,
+			},
+			{
+				name: "context only handler",
+				handler: func(ctx *Context) (*TestResponse, error) {
+					return &TestResponse{Message: "with context"}, nil
+				},
+				method:       "GET",
+				expectedCode: http.StatusOK,
+				expectedBody: `{"message":"with context"}`,
+			},
+			{
+				name: "request only handler",
+				handler: func(req TestRouterRequest) (*TestResponse, error) {
+					return &TestResponse{Message: "Hello " + req.Name}, nil
+				},
+				method:       "POST",
+				body:         `{"name":"world"}`,
+				expectedCode: http.StatusOK,
+				expectedBody: `{"message":"Hello world"}`,
+			},
+			{
+				name: "context and request handler",
+				handler: func(ctx *Context, req TestRouterRequest) (*TestResponse, error) {
+					return &TestResponse{Message: "Hello " + req.Name}, nil
+				},
+				method:       "POST",
+				body:         `{"name":"world"}`,
+				expectedCode: http.StatusOK,
+				expectedBody: `{"message":"Hello world"}`,
+			},
+			{
+				name: "invalid request body",
+				handler: func(req TestRouterRequest) (*TestResponse, error) {
+					return &TestResponse{Message: "Hello " + req.Name}, nil
+				},
+				method:       "POST",
+				body:         `invalid json`,
+				expectedCode: http.StatusBadRequest,
+			},
+			{
+				name: "with middleware",
+				handler: func(ctx *Context) (*TestResponse, error) {
+					if _, exists := ctx.Get("middleware"); !exists {
+						t.Error("Middleware was not called")
+					}
+					return &TestResponse{Message: "with middleware"}, nil
+				},
+				method:       "GET",
+				expectedCode: http.StatusOK,
+				expectedBody: `{"message":"with middleware"}`,
+				middleware:   []gin.HandlerFunc{testMiddleware()},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				server := &Server{engine: gin.New()}
+				group := server.Group("/test")
+
+				switch tt.method {
+				case "GET":
+					group.GET("", tt.handler, tt.middleware...)
+				case "POST":
+					group.POST("", tt.handler, tt.middleware...)
+				case "PUT":
+					group.PUT("", tt.handler, tt.middleware...)
+				case "DELETE":
+					group.DELETE("", tt.handler, tt.middleware...)
+				}
+
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(tt.method, "/test", strings.NewReader(tt.body))
+				if tt.body != "" {
+					req.Header.Set("Content-Type", "application/json")
+				}
+				server.engine.ServeHTTP(w, req)
+
+				assert.Equal(t, tt.expectedCode, w.Code)
+				if tt.expectedBody != "" {
+					var expected, actual map[string]interface{}
+					err := json.Unmarshal([]byte(tt.expectedBody), &expected)
+					assert.NoError(t, err)
+					err = json.Unmarshal(w.Body.Bytes(), &actual)
+					assert.NoError(t, err)
+					assert.Equal(t, expected, actual)
+				}
+			})
+		}
+	})
+
+	t.Run("group methods", func(t *testing.T) {
+		server := &Server{engine: gin.New()}
+		group := server.Group("/test")
+
+		methods := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"}
+		for _, method := range methods {
+			t.Run(method+" method", func(t *testing.T) {
+				handler := func(ctx *Context) (*TestResponse, error) {
+					return &TestResponse{Message: method}, nil
+				}
+
+				switch method {
+				case "GET":
+					group.GET("/"+method, handler)
+				case "POST":
+					group.POST("/"+method, handler)
+				case "PUT":
+					group.PUT("/"+method, handler)
+				case "DELETE":
+					group.DELETE("/"+method, handler)
+				case "PATCH":
+					group.PATCH("/"+method, handler)
+				case "OPTIONS":
+					group.OPTIONS("/"+method, handler)
+				case "HEAD":
+					group.HEAD("/"+method, handler)
+				}
+
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(method, "/test/"+method, nil)
+				server.engine.ServeHTTP(w, req)
+
+				assert.Equal(t, http.StatusOK, w.Code)
+				if method != "HEAD" {
+					var response TestResponse
+					err := json.Unmarshal(w.Body.Bytes(), &response)
+					assert.NoError(t, err)
+					assert.Equal(t, method, response.Message)
+				}
+			})
+		}
+	})
+
+	t.Run("nested groups", func(t *testing.T) {
+		server := &Server{engine: gin.New()}
+		group1 := server.Group("/v1")
+		group2 := group1.Group("/api")
+		group3 := group2.Group("/test")
+
+		handler := func(ctx *Context) (*TestResponse, error) {
+			return &TestResponse{Message: "nested"}, nil
+		}
+		group3.GET("", handler)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/v1/api/test", nil)
+		server.engine.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var response TestResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		assert.NoError(t, err)
+		assert.Equal(t, "nested", response.Message)
+	})
+
+	t.Run("middleware chain", func(t *testing.T) {
+		server := &Server{engine: gin.New()}
+		group := server.Group("/test")
+
+		middleware1Called := false
+		middleware2Called := false
+
+		middleware1 := func(c *gin.Context) {
+			middleware1Called = true
+			c.Next()
+		}
+		middleware2 := func(c *gin.Context) {
+			middleware2Called = true
+			c.Next()
+		}
+
+		group.Use(middleware1)
+		group.GET("", func(ctx *Context) (*TestResponse, error) {
+			return &TestResponse{Message: "success"}, nil
+		}, middleware2)
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/test", nil)
+		server.engine.ServeHTTP(w, req)
+
+		assert.True(t, middleware1Called)
+		assert.True(t, middleware2Called)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+// Mock controller for testing
+type MockController struct {
+	registerCalled bool
+}
+
+func (m *MockController) Register(group *ControllerGroup) {
+	m.registerCalled = true
 }
