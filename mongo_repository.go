@@ -17,7 +17,7 @@ type MongoRepository[T Document] struct {
 func NewMongoRepository[T Document](db *mongo.Database) *MongoRepository[T] {
 	var doc T
 	return &MongoRepository[T]{
-		collection: db.Collection(doc.GetCollectionName()),
+		collection: db.Collection(getCollectionName(doc)),
 	}
 }
 

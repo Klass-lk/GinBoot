@@ -4,20 +4,13 @@ import (
 	"time"
 )
 
+// ginboot:collection:posts
 type Post struct {
-	ID        string    `bson:"_id,omitempty" json:"id"`
+	ID        string    `ginboot:"id" bson:"_id,omitempty" json:"id"`
 	Title     string    `bson:"title" json:"title"`
 	Content   string    `bson:"content" json:"content"`
 	Author    string    `bson:"author" json:"author"`
 	Tags      []string  `bson:"tags" json:"tags"`
 	CreatedAt time.Time `bson:"created_at" json:"createdAt"`
 	UpdatedAt time.Time `bson:"updated_at" json:"updatedAt"`
-}
-
-func (p Post) GetID() string {
-	return p.ID
-}
-
-func (p Post) GetCollectionName() string {
-	return "posts"
 }

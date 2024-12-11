@@ -14,15 +14,12 @@ import (
 )
 
 // TestDocument is a sample document for testing
+// ginboot:collection:test_documents
 type TestDocument struct {
 	ID        string    `bson:"_id" ginboot:"_id"`
 	Name      string    `bson:"name"`
 	Age       int       `bson:"age"`
 	CreatedAt time.Time `bson:"created_at"`
-}
-
-func (d TestDocument) GetCollectionName() string {
-	return "test_documents"
 }
 
 // setupTestContainer creates a MongoDB test container
@@ -93,7 +90,7 @@ func TestMongoRepository(t *testing.T) {
 		t.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
-	// Create repository
+	// Create repository - collection name will come from comment
 	repo := NewMongoRepository[TestDocument](db)
 
 	// Test cases
