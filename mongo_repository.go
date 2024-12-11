@@ -59,7 +59,7 @@ func (r *MongoRepository[T]) Save(doc T) error {
 func (r *MongoRepository[T]) SaveOrUpdate(doc T) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": doc.GetID()}, doc, options.Replace().SetUpsert(true))
+	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": getDocumentID(doc)}, doc, options.Replace().SetUpsert(true))
 	return err
 }
 
@@ -71,7 +71,7 @@ func (r *MongoRepository[T]) SaveAll(docs []T) error {
 	defer cancel()
 	var operations []mongo.WriteModel
 	for _, doc := range docs {
-		operation := mongo.NewReplaceOneModel().SetFilter(bson.M{"_id": doc.GetID()}).SetReplacement(doc).SetUpsert(true)
+		operation := mongo.NewReplaceOneModel().SetFilter(bson.M{"_id": getDocumentID(doc)}).SetReplacement(doc).SetUpsert(true)
 		operations = append(operations, operation)
 	}
 	_, err := r.collection.BulkWrite(ctx, operations)
@@ -81,7 +81,7 @@ func (r *MongoRepository[T]) SaveAll(docs []T) error {
 func (r *MongoRepository[T]) Update(doc T) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": doc.GetID()}, doc)
+	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": getDocumentID(doc)}, doc)
 	return err
 }
 

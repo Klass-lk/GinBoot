@@ -15,14 +15,10 @@ import (
 
 // TestDocument is a sample document for testing
 type TestDocument struct {
-	ID        string    `bson:"_id"`
+	ID        string    `bson:"_id" ginboot:"_id"`
 	Name      string    `bson:"name"`
 	Age       int       `bson:"age"`
 	CreatedAt time.Time `bson:"created_at"`
-}
-
-func (d TestDocument) GetID() string {
-	return d.ID
 }
 
 func (d TestDocument) GetCollectionName() string {
