@@ -11,9 +11,6 @@ import (
 	"unicode"
 )
 
-type Document interface {
-}
-
 // getDocumentID returns the ID value of a document using reflection
 // It looks for a field tagged with `ginboot:"_id"` or falls back to a field named "ID"
 func getDocumentID(doc interface{}) string {

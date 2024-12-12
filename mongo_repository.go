@@ -10,11 +10,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type MongoRepository[T Document] struct {
+type MongoRepository[T interface{}] struct {
 	collection *mongo.Collection
 }
 
-func NewMongoRepository[T Document](db *mongo.Database) *MongoRepository[T] {
+func NewMongoRepository[T interface{}](db *mongo.Database) *MongoRepository[T] {
 	var doc T
 	return &MongoRepository[T]{
 		collection: db.Collection(getCollectionName(doc)),
