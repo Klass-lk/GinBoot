@@ -4,7 +4,6 @@ import (
 	"time"
 )
 
-// ginboot:collection:posts
 type Post struct {
 	ID        string    `ginboot:"id" bson:"_id,omitempty" json:"id"`
 	Title     string    `bson:"title" json:"title"`

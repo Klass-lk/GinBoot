@@ -12,6 +12,6 @@ type PostRepository struct {
 
 func NewPostRepository(database *mongo.Database) *PostRepository {
 	return &PostRepository{
-		MongoRepository: ginboot.NewMongoRepository[model.Post](database),
+		MongoRepository: ginboot.NewMongoRepository[model.Post](database, "posts"),
 	}
 }

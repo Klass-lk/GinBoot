@@ -72,92 +72,71 @@ go get github.com/klass-lk/ginboot
 
 ## Usage
 
-### Database Operations
+### MongoDB Repository
 
-GinBoot provides a `GenericRepository` interface for MongoDB, which offers a variety of methods to simplify data access operations.
+GinBoot provides a generic MongoDB repository that simplifies database operations. Here's how to use it:
 
+1. Define your document struct:
 ```go
-type GenericRepository[T Document] interface {
-    Query() *mongo.Collection
-    FindById(id interface{}) (T, error)
-    FindAllById(idList []string) ([]T, error)
-    Save(doc T) error
-    SaveOrUpdate(doc T) error
-    SaveAll(sms []T) error
-    Update(doc T) error
-    Delete(id string) error
-    FindOneBy(field string, value interface{}) (T, error)
-    FindOneByFilters(filters map[string]interface{}) (T, error)
-    FindBy(field string, value interface{}) ([]T, error)
-    FindByFilters(filters map[string]interface{}) ([]T, error)
-    FindAll(opts ...*options.FindOptions) ([]T, error)
-    FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error)
-    FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error)
-    CountBy(field string, value interface{}) (int64, error)
-    CountByFilters(filters map[string]interface{}) (int64, error)
-    ExistsBy(field string, value interface{}) (bool, error)
-    ExistsByFilters(filters map[string]interface{}) (bool, error)
-}
-```
-
-### Example
-
-```go
-// Define a repository for your data type
-type MyRepository struct {
-    repository.GenericRepository[MyDocument]
-}
-```
-
-### MongoDB Configuration
-
-GinBoot provides a flexible MongoDB configuration system through the `MongoConfig` struct. Here's how to use it:
-
-```go
-// Create a new MongoDB configuration
-config := ginboot.NewMongoConfig().
-    WithHost("localhost", 27017).
-    WithCredentials("username", "password").
-    WithDatabase("mydb").
-    WithOption("authSource", "admin")
-
-// Connect to MongoDB
-db, err := config.Connect()
-if err != nil {
-    log.Fatal(err)
-}
-
-// Create a repository for your model
 type User struct {
-    ID   string `bson:"_id"`
+    ID   string `bson:"_id" ginboot:"_id"`
     Name string `bson:"name"`
 }
-
-func (u User) GetID() string     { return u.ID }
-func (u User) SetID(id interface{})   { u.ID = id.(string) }
-func (u *User) GetCollectionName() string { return "users" }
-
-// Initialize the repository
-userRepo := ginboot.NewMongoRepository[User](db)
-
-// Use the repository
-user := User{Name: "John Doe"}
-err = userRepo.Save(user)
 ```
 
-For more secure handling of credentials, you can use environment variables:
-
+2. Create a repository:
 ```go
-config := ginboot.NewMongoConfig().
-    WithHost(os.Getenv("MONGO_HOST"), 27017).
-    WithCredentials(
-        os.Getenv("MONGO_USERNAME"),
-        os.Getenv("MONGO_PASSWORD"),
-    ).
-    WithDatabase(os.Getenv("MONGO_DATABASE"))
+// Create a repository instance
+repo := ginboot.NewMongoRepository[User](db, "users")
+
+// Or wrap it in your own repository struct for additional methods
+type UserRepository struct {
+    *ginboot.MongoRepository[User]
+}
+
+func NewUserRepository(db *mongo.Database) *UserRepository {
+    return &UserRepository{
+        MongoRepository: ginboot.NewMongoRepository[User](db, "users"),
+    }
+}
 ```
 
-## API Request Context
+3. Use the repository:
+```go
+// Create
+user := User{ID: "1", Name: "John"}
+err := repo.SaveOrUpdate(user)
+
+// Read
+user, err := repo.FindById("1")
+
+// Update
+user.Name = "John Doe"
+err = repo.Update(user)
+
+// Delete
+err = repo.Delete("1")
+
+// Find with filters
+users, err := repo.FindByFilters(map[string]interface{}{
+    "name": "John",
+})
+
+// Paginated query
+response, err := repo.FindAllPaginated(PageRequest{
+    Page: 1,
+    Size: 10,
+})
+```
+
+The repository provides a comprehensive set of methods for database operations:
+- Basic CRUD operations
+- Batch operations (SaveAll, FindAllById)
+- Filtering and querying
+- Pagination support
+- Count and existence checks
+
+### API Request Context
 
 GinBoot simplifies the extraction of request and authentication context from the Gin context, making it easier to handle requests in controllers.
 
