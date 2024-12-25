@@ -14,7 +14,6 @@ import (
 )
 
 // TestDocument is a sample document for testing
-// ginboot:collection:test_documents
 type TestDocument struct {
 	ID        string    `bson:"_id" ginboot:"_id"`
 	Name      string    `bson:"name"`
@@ -90,8 +89,8 @@ func TestMongoRepository(t *testing.T) {
 		t.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
-	// Create repository - collection name will come from comment
-	repo := NewMongoRepository[TestDocument](db)
+	// Create repository with explicit collection name
+	repo := NewMongoRepository[TestDocument](db, "test_documents")
 
 	// Test cases
 	t.Run("Save and FindById", func(t *testing.T) {

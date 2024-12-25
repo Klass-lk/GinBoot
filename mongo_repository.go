@@ -14,10 +14,9 @@ type MongoRepository[T interface{}] struct {
 	collection *mongo.Collection
 }
 
-func NewMongoRepository[T interface{}](db *mongo.Database) *MongoRepository[T] {
-	var doc T
+func NewMongoRepository[T interface{}](db *mongo.Database, collectionName string) *MongoRepository[T] {
 	return &MongoRepository[T]{
-		collection: db.Collection(getCollectionName(doc)),
+		collection: db.Collection(collectionName),
 	}
 }
 
