@@ -440,6 +440,82 @@ This setup creates a clean, maintainable API structure with routes like:
 
 The routing system combines the simplicity of Gin's routing with the power of controller-based organization, making it easy to structure and maintain your API endpoints.
 
+## Handler Function Signatures
+
+GinBoot supports multiple handler function signatures for flexibility. You can write your controller methods in any of the following formats:
+
+### 1. Context Only Handler
+```go
+func (c *Controller) HandleRequest(ctx *ginboot.Context) (Response, error) {
+    // Access auth context, request body, and other utilities through ctx
+    authContext, err := ctx.GetAuthContext()
+    if err != nil {
+        return nil, err
+    }
+    return response, nil
+}
+```
+
+### 2. Request Model Handler
+```go
+func (c *Controller) CreateItem(request models.CreateItemRequest) (Response, error) {
+    // Request is automatically parsed and validated
+    // Auth context can be accessed through middleware if needed
+    return response, nil
+}
+```
+
+### 3. No Input Handler
+```go
+func (c *Controller) GetStatus() (Response, error) {
+    // Simple handlers with no input parameters
+    return response, nil
+}
+```
+
+### Example Controller
+
+```go
+type UserController struct {
+    service *UserService
+}
+
+// Context handler example
+func (c *UserController) GetUser(ctx *ginboot.Context) (*User, error) {
+    authContext, err := ctx.GetAuthContext()
+    if err != nil {
+        return nil, err
+    }
+    return c.service.GetUser(authContext.UserID)
+}
+
+// Request model handler example
+func (c *UserController) CreateUser(request models.CreateUserRequest) (*User, error) {
+    return c.service.CreateUser(request)
+}
+
+// No input handler example
+func (c *UserController) GetStats() (*Stats, error) {
+    return c.service.GetStats()
+}
+
+func (c *UserController) Register(group *ginboot.ControllerGroup) {
+    group.GET("/user", c.GetUser)
+    group.POST("/user", c.CreateUser)
+    group.GET("/stats", c.GetStats)
+}
+```
+
+All handlers must return two values:
+1. A response value (can be any type)
+2. An error value
+
+The framework will automatically:
+- Parse and validate request bodies
+- Handle errors appropriately
+- Convert responses to JSON
+- Manage HTTP status codes based on errors
+
 ## Server Configuration
 
 GinBoot provides a flexible server configuration that supports both HTTP and AWS Lambda runtimes.
