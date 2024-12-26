@@ -138,70 +138,69 @@ The repository provides a comprehensive set of methods for database operations:
 
 ### API Request Context
 
-GinBoot provides a custom Context wrapper around Gin's context that simplifies request handling and authentication. Here's how to use it:
+GinBoot provides a custom Context wrapper around Gin's context that simplifies request handling and authentication. The context provides these key utilities:
 
 ```go
 // Get authentication context
-authContext, err := c.GetAuthContext()
+authContext, err := ctx.GetAuthContext()
 
 // Parse and validate request body
 var request YourRequestType
-err := c.GetRequest(&request)
+err := ctx.GetRequest(&request)
 
 // Get paginated request parameters
-pageRequest := c.GetPageRequest()
+pageRequest := ctx.GetPageRequest()
 ```
 
 ### Example Usage
 
+Here are examples of different handler patterns supported by GinBoot:
+
 ```go
-func (controller *ApiKeyController) Create(c *ginboot.Context) {
+// Pattern 1: Context Handler
+// Use when you need direct access to context utilities
+func (c *Controller) ListApiKeys(ctx *ginboot.Context) (*ApiKeyList, error) {
     // Get auth context
-    authContext, err := c.GetAuthContext()
+    authContext, err := ctx.GetAuthContext()
     if err != nil {
-        c.SendError(err)
-        return
-    }
-
-    // Parse request body
-    var request CreateApiKeyRequest
-    if err := c.GetRequest(&request); err != nil {
-        c.SendError(err)
-        return
-    }
-
-    apiKey, err := controller.service.Create(authContext, request)
-    if err != nil {
-        c.SendError(err)
-        return
-    }
-    c.JSON(http.StatusOK, apiKey)
-}
-```
-
-For paginated requests:
-
-```go
-func (controller *ApiKeyController) List(c *ginboot.Context) {
-    authContext, err := c.GetAuthContext()
-    if err != nil {
-        c.SendError(err)
-        return
+        return nil, err
     }
 
     // Get pagination parameters
-    pageRequest := c.GetPageRequest()
+    pageRequest := ctx.GetPageRequest()
     
-    apiKeys, err := controller.service.List(authContext, pageRequest)
-    if err != nil {
-        c.SendError(err)
-        return
-    }
-    c.JSON(http.StatusOK, apiKeys)
+    return c.service.ListApiKeys(authContext, pageRequest)
+}
+
+// Pattern 2: Request Model Handler
+// Use when you only need the request body
+func (c *Controller) CreateApiKey(request models.CreateApiKeyRequest) (*ApiKey, error) {
+    // Request is automatically parsed and validated
+    return c.service.CreateApiKey(request)
+}
+
+// Pattern 3: No Input Handler
+// Use for simple endpoints that don't need request data
+func (c *Controller) GetApiKeyStats() (*ApiKeyStats, error) {
+    return c.service.GetApiKeyStats()
+}
+
+// Register routes
+func (c *Controller) Register(group *ginboot.ControllerGroup) {
+    group.GET("/api-keys", c.ListApiKeys)
+    group.POST("/api-keys", c.CreateApiKey)
+    group.GET("/api-keys/stats", c.GetApiKeyStats)
 }
 ```
 
-## Business Error Handling
+The framework will automatically:
+- Handle request parsing and validation
+- Manage authentication context
+- Process pagination parameters
+- Convert responses to JSON
+- Handle errors appropriately
+
+### Business Error Handling
 
 Define and manage business errors with GinBoot's ApiError type, which allows custom error codes and messages.
 
