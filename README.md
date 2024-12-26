@@ -138,48 +138,63 @@ The repository provides a comprehensive set of methods for database operations:
 
 ### API Request Context
 
-GinBoot simplifies the extraction of request and authentication context from the Gin context, making it easier to handle requests in controllers.
+GinBoot provides a custom Context wrapper around Gin's context that simplifies request handling and authentication. Here's how to use it:
 
 ```go
-func BuildAuthRequestContext[T interface{}](c *gin.Context) (T, AuthContext, error) {}
+// Get authentication context
+authContext, err := c.GetAuthContext()
+
+// Parse and validate request body
+var request YourRequestType
+err := c.GetRequest(&request)
+
+// Get paginated request parameters
+pageRequest := c.GetPageRequest()
 ```
 
 ### Example Usage
 
 ```go
-func (controller *ApiKeyController) Create(c *gin.Context) {
-    request, authContext, err := ginboot.BuildAuthRequestContext[domain.CreateApiKeyRequest](c)
+func (controller *ApiKeyController) Create(c *ginboot.Context) {
+    // Get auth context
+    authContext, err := c.GetAuthContext()
     if err != nil {
-        ginboot.SendError(c, err)
+        c.SendError(err)
         return
     }
+
+    // Parse request body
+    var request CreateApiKeyRequest
+    if err := c.GetRequest(&request); err != nil {
+        c.SendError(err)
+        return
+    }
+
     apiKey, err := controller.service.Create(authContext, request)
     if err != nil {
-        ginboot.SendError(c, err)
+        c.SendError(err)
         return
     }
     c.JSON(http.StatusOK, apiKey)
 }
-
-```
-For retrieving only the authentication context:
-
-```go
-func GetAuthContext(c *gin.Context) (AuthContext, error) {}
 ```
 
-### Example
+For paginated requests:
 
 ```go
-func (controller *ApiKeyController) GetApiKeys(c *gin.Context) {
-    authContext, err := ginboot.GetAuthContext(c)
+func (controller *ApiKeyController) List(c *ginboot.Context) {
+    authContext, err := c.GetAuthContext()
     if err != nil {
-        ginboot.SendError(c, err)
+        c.SendError(err)
         return
     }
-    apiKeys, err := controller.service.GetApiKeys(authContext)
+
+    // Get pagination parameters
+    pageRequest := c.GetPageRequest()
+    
+    apiKeys, err := controller.service.List(authContext, pageRequest)
     if err != nil {
-        ginboot.SendError(c, err)
+        c.SendError(err)
         return
     }
     c.JSON(http.StatusOK, apiKeys)
