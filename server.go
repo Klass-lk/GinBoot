@@ -21,10 +21,11 @@ const (
 )
 
 type Server struct {
-	engine     *gin.Engine
-	runtime    Runtime
-	corsConfig *cors.Config
-	basePath   string
+	engine      *gin.Engine
+	runtime     Runtime
+	corsConfig  *cors.Config
+	basePath    string
+	fileService FileService
 }
 
 func New() *Server {
@@ -78,6 +79,11 @@ func (s *Server) SetBasePath(path string) *Server {
 func (s *Server) WithCORS(config *cors.Config) *Server {
 	s.corsConfig = config
 	s.engine.Use(cors.New(*config))
+	return s
+}
+
+func (s *Server) BindFileService(fileService FileService) *Server {
+	s.fileService = fileService
 	return s
 }
 

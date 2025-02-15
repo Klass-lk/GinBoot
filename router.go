@@ -11,7 +11,8 @@ import (
 
 // ControllerGroup represents a group of routes with common middleware and path prefix
 type ControllerGroup struct {
-	group *gin.RouterGroup
+	group       *gin.RouterGroup
+	fileService FileService
 }
 
 // Controller interface defines methods that controllers must implement
@@ -23,12 +24,13 @@ type Controller interface {
 func (s *Server) Group(relativePath string, middleware ...gin.HandlerFunc) *ControllerGroup {
 	fullPath := path.Join(s.basePath, relativePath)
 	return &ControllerGroup{
-		group: s.engine.Group(fullPath, middleware...),
+		group:       s.engine.Group(fullPath, middleware...),
+		fileService: s.fileService,
 	}
 }
 
 // Internal handler wrapper
-func wrapHandler(handler interface{}) gin.HandlerFunc {
+func wrapHandler(handler interface{}, service FileService) gin.HandlerFunc {
 	handlerType := reflect.TypeOf(handler)
 	if handlerType.Kind() != reflect.Func {
 		panic("handler must be a function")
@@ -47,7 +49,7 @@ func wrapHandler(handler interface{}) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		ctx := NewContext(c)
+		ctx := NewContext(c, service)
 
 		// Prepare arguments based on handler signature
 		var args []reflect.Value
@@ -120,7 +122,7 @@ func (s *Server) RegisterController(path string, controller Controller) {
 
 // Handle wraps gin handler to use custom context
 func (g *ControllerGroup) Handle(httpMethod, relativePath string, handler interface{}, middleware ...gin.HandlerFunc) {
-	wrappedHandler := wrapHandler(handler)
+	wrappedHandler := wrapHandler(handler, g.fileService)
 	handlers := append(middleware, wrappedHandler)
 	g.group.Handle(httpMethod, relativePath, handlers...)
 }

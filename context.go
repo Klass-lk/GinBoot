@@ -17,12 +17,13 @@ type AuthContext struct {
 
 type Context struct {
 	*gin.Context
-	authContext *AuthContext
+	fileService FileService
 }
 
-func NewContext(c *gin.Context) *Context {
+func NewContext(c *gin.Context, fileService FileService) *Context {
 	return &Context{
-		Context: c,
+		Context:     c,
+		fileService: fileService,
 	}
 }
 
