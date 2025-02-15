@@ -53,7 +53,7 @@ func TestContext_GetAuthContext(t *testing.T) {
 			c, _ := gin.CreateTestContext(w)
 			tt.setupContext(c)
 
-			ctx := NewContext(c)
+			ctx := NewContext(c, nil)
 			auth, err := ctx.GetAuthContext()
 
 			if tt.expectError {
@@ -101,7 +101,7 @@ func TestContext_GetRequest(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			c.Request = req
 
-			ctx := NewContext(c)
+			ctx := NewContext(c, nil)
 			var testReq TestRequest
 			err := ctx.GetRequest(&testReq)
 
@@ -176,7 +176,7 @@ func TestContext_GetPageRequest(t *testing.T) {
 			req.URL.RawQuery = q.Encode()
 			c.Request = req
 
-			ctx := NewContext(c)
+			ctx := NewContext(c, nil)
 			result := ctx.GetPageRequest()
 
 			if tt.expectAbort {
