@@ -27,6 +27,10 @@ func NewContext(c *gin.Context, fileService FileService) *Context {
 	}
 }
 
+func (c *Context) GetFileService() FileService {
+	return c.fileService
+}
+
 // GetAuthContext returns the current auth context
 func (c *Context) GetAuthContext() (AuthContext, error) {
 	userId, exists := c.Get("user_id")
