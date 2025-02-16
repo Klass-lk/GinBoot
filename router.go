@@ -165,7 +165,8 @@ func (g *ControllerGroup) HEAD(relativePath string, handler interface{}, middlew
 // Group creates a new sub-group with the given path and middleware
 func (g *ControllerGroup) Group(relativePath string, middleware ...gin.HandlerFunc) *ControllerGroup {
 	return &ControllerGroup{
-		group: g.group.Group(relativePath, middleware...),
+		group:       g.group.Group(relativePath, middleware...),
+		fileService: g.fileService,
 	}
 }
 
