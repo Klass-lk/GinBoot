@@ -1,0 +1,472 @@
+package ginboot
+
+import (
+	"context"
+	"os"
+	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/stretchr/testify/assert"
+	tcddb "github.com/testcontainers/testcontainers-go/modules/dynamodb"
+)
+
+const (
+	testTableName = "test-table"
+)
+
+type TestEntity struct {
+	ID    string `json:"id" dynamodbav:"id"`
+	Name  string `json:"name"`
+	Value int    `json:"value"`
+}
+
+var (
+	testDynamoClient *dynamodb.Client
+	testRepo         *DynamoDBRepository[TestEntity]
+	testTeardown     func()
+)
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	dynamoDBContainer, err := tcddb.Run(ctx,
+		"amazon/dynamodb-local:latest",
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	endpoint, err := dynamoDBContainer.Endpoint(ctx, "")
+	if err != nil {
+		panic(err)
+	}
+
+	cfg := aws.Config{
+		Region: "us-east-1",
+		EndpointResolver: aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) {
+			return aws.Endpoint{URL: "http://" + endpoint}, nil
+		}),
+		Credentials: credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+	}
+
+	testDynamoClient = dynamodb.NewFromConfig(cfg)
+
+	_, err = testDynamoClient.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: aws.String(testTableName),
+		AttributeDefinitions: []types.AttributeDefinition{
+			{
+				AttributeName: aws.String("id"),
+				AttributeType: types.ScalarAttributeTypeS,
+			},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{
+				AttributeName: aws.String("id"),
+				KeyType:       types.KeyTypeHash,
+			},
+		},
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(5),
+			WriteCapacityUnits: aws.Int64(5),
+		},
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	testRepo = NewDynamoDBRepository[TestEntity](testDynamoClient, testTableName)
+
+	testTeardown = func() {
+		if err := dynamoDBContainer.Terminate(ctx); err != nil {
+			panic(err)
+		}
+	}
+
+	exitCode := m.Run()
+	testTeardown()
+	os.Exit(exitCode)
+}
+
+func setup(t *testing.T) (*DynamoDBRepository[TestEntity], func()) {
+	// Clear table before each test
+	ctx := context.Background()
+
+	scanOutput, err := testDynamoClient.Scan(ctx, &dynamodb.ScanInput{
+		TableName:            aws.String(testTableName),
+		ProjectionExpression: aws.String("id"),
+	})
+	if err != nil {
+		t.Fatalf("failed to scan table for clearing: %s", err)
+	}
+
+	if len(scanOutput.Items) > 0 {
+		writeRequests := make([]types.WriteRequest, len(scanOutput.Items))
+		for i, item := range scanOutput.Items {
+			var id string
+			err = attributevalue.Unmarshal(item["id"], &id)
+			if err != nil {
+				t.Fatalf("failed to unmarshal id during table clearing: %s", err)
+			}
+			writeRequests[i] = types.WriteRequest{
+				DeleteRequest: &types.DeleteRequest{Key: map[string]types.AttributeValue{"id": item["id"]}},
+			}
+		}
+
+		_, err = testDynamoClient.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
+			RequestItems: map[string][]types.WriteRequest{
+				testTableName: writeRequests,
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to batch delete items during table clearing: %s", err)
+		}
+	}
+
+	return testRepo, func() { /* no-op teardown for individual tests */ }
+}
+
+func TestDynamoDBRepository_FindById(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity := TestEntity{ID: "1", Name: "test"}
+	err := repo.Save(testEntity)
+	assert.NoError(t, err)
+
+	foundEntity, err := repo.FindById("1")
+	assert.NoError(t, err)
+	assert.Equal(t, testEntity, foundEntity)
+}
+
+func TestDynamoDBRepository_FindAllById(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity1 := TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := TestEntity{ID: "2", Name: "test2"}
+	err := repo.Save(testEntity1)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity2)
+	assert.NoError(t, err)
+
+	foundEntities, err := repo.FindAllById([]string{"1", "2"})
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 2)
+	assert.Contains(t, foundEntities, testEntity1)
+	assert.Contains(t, foundEntities, testEntity2)
+}
+
+func TestDynamoDBRepository_SaveAll(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntities := []TestEntity{
+		{ID: "3", Name: "test3"},
+		{ID: "4", Name: "test4"},
+	}
+	err := repo.SaveAll(testEntities)
+	assert.NoError(t, err)
+
+	foundEntity1, err := repo.FindById("3")
+	assert.NoError(t, err)
+	assert.Equal(t, testEntities[0], foundEntity1)
+
+	foundEntity2, err := repo.FindById("4")
+	assert.NoError(t, err)
+	assert.Equal(t, testEntities[1], foundEntity2)
+}
+
+func TestDynamoDBRepository_Update(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity := TestEntity{ID: "1", Name: "initial"}
+	err := repo.Save(testEntity)
+	assert.NoError(t, err)
+
+	updatedEntity := TestEntity{ID: "1", Name: "updated"}
+	err = repo.Update(updatedEntity)
+	assert.NoError(t, err)
+
+	foundEntity, err := repo.FindById("1")
+	assert.NoError(t, err)
+	assert.Equal(t, updatedEntity, foundEntity)
+}
+
+func TestDynamoDBRepository_FindOneBy(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity := TestEntity{ID: "5", Name: "findOneTest"}
+	err := repo.Save(testEntity)
+	assert.NoError(t, err)
+
+	foundEntity, err := repo.FindOneBy("Name", "findOneTest")
+	assert.NoError(t, err)
+	assert.Equal(t, testEntity, foundEntity)
+
+	_, err = repo.FindOneBy("Name", "nonExistent")
+	assert.Error(t, err)
+}
+
+func TestDynamoDBRepository_FindOneByFilters(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity := TestEntity{ID: "6", Name: "filterTest", Value: 10}
+	err := repo.Save(testEntity)
+	assert.NoError(t, err)
+
+	filters := map[string]interface{}{
+		"Name":  "filterTest",
+		"Value": 10,
+	}
+	foundEntity, err := repo.FindOneByFilters(filters)
+	assert.NoError(t, err)
+	assert.Equal(t, testEntity, foundEntity)
+
+	filters = map[string]interface{}{
+		"Name":  "filterTest",
+		"Value": 99,
+	}
+	_, err = repo.FindOneByFilters(filters)
+	assert.Error(t, err)
+}
+
+func TestDynamoDBRepository_FindBy(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity1 := TestEntity{ID: "7", Name: "findByTest", Value: 1}
+	testEntity2 := TestEntity{ID: "8", Name: "findByTest", Value: 2}
+	testEntity3 := TestEntity{ID: "9", Name: "another", Value: 1}
+	err := repo.Save(testEntity1)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity2)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity3)
+	assert.NoError(t, err)
+
+	foundEntities, err := repo.FindBy("Name", "findByTest")
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 2)
+	assert.Contains(t, foundEntities, testEntity1)
+	assert.Contains(t, foundEntities, testEntity2)
+
+	foundEntities, err = repo.FindBy("Value", 1)
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 2)
+	assert.Contains(t, foundEntities, testEntity1)
+	assert.Contains(t, foundEntities, testEntity3)
+}
+
+func TestDynamoDBRepository_FindByFilters(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity1 := TestEntity{ID: "10", Name: "filterTest1", Value: 100}
+	testEntity2 := TestEntity{ID: "11", Name: "filterTest2", Value: 100}
+	testEntity3 := TestEntity{ID: "12", Name: "filterTest1", Value: 200}
+	err := repo.Save(testEntity1)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity2)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity3)
+	assert.NoError(t, err)
+
+	filters := map[string]interface{}{
+		"Name":  "filterTest1",
+		"Value": 100,
+	}
+	foundEntities, err := repo.FindByFilters(filters)
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 1)
+	assert.Contains(t, foundEntities, testEntity1)
+
+	filters = map[string]interface{}{
+		"Value": 100,
+	}
+	foundEntities, err = repo.FindByFilters(filters)
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 2)
+	assert.Contains(t, foundEntities, testEntity1)
+	assert.Contains(t, foundEntities, testEntity2)
+}
+
+func TestDynamoDBRepository_FindAll(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	testEntity1 := TestEntity{ID: "13", Name: "all1", Value: 1}
+	testEntity2 := TestEntity{ID: "14", Name: "all2", Value: 2}
+	err := repo.Save(testEntity1)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity2)
+	assert.NoError(t, err)
+
+	foundEntities, err := repo.FindAll()
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 2)
+	assert.Contains(t, foundEntities, testEntity1)
+	assert.Contains(t, foundEntities, testEntity2)
+}
+
+func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	// Save 5 entities for pagination testing
+	for i := 0; i < 5; i++ {
+		err := repo.Save(TestEntity{ID: "paginated" + string(rune('A'+i)), Name: "paginated", Value: i})
+		assert.NoError(t, err)
+	}
+
+	// Test first page
+	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageResponse1, err := repo.FindAllPaginated(pageRequest1)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse1.Contents, 2)
+	assert.Equal(t, 5, pageResponse1.TotalElements)
+	assert.Equal(t, 3, pageResponse1.TotalPages)
+
+	// Test second page
+	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageResponse2, err := repo.FindAllPaginated(pageRequest2)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse2.Contents, 2)
+	assert.Equal(t, 5, pageResponse2.TotalElements)
+	assert.Equal(t, 3, pageResponse2.TotalPages)
+
+	// Test last page (with one item)
+	pageRequest3 := PageRequest{Page: 3, Size: 2}
+	pageResponse3, err := repo.FindAllPaginated(pageRequest3)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse3.Contents, 1)
+	assert.Equal(t, 5, pageResponse3.TotalElements)
+	assert.Equal(t, 3, pageResponse3.TotalPages)
+}
+
+func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	// Save entities for pagination with filters
+	_ = repo.Save(TestEntity{ID: "fp1", Name: "filtered", Value: 10})
+	_ = repo.Save(TestEntity{ID: "fp2", Name: "filtered", Value: 20})
+	_ = repo.Save(TestEntity{ID: "fp3", Name: "other", Value: 10})
+	_ = repo.Save(TestEntity{ID: "fp4", Name: "filtered", Value: 30})
+
+	filters := map[string]interface{}{
+		"Name": "filtered",
+	}
+
+	// Test first page with filter
+	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageResponse1, err := repo.FindByPaginated(pageRequest1, filters)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse1.Contents, 2)
+	assert.Equal(t, 3, pageResponse1.TotalElements)
+	assert.Equal(t, 2, pageResponse1.TotalPages)
+
+	// Test second page with filter
+	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageResponse2, err := repo.FindByPaginated(pageRequest2, filters)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse2.Contents, 1)
+	assert.Equal(t, 3, pageResponse2.TotalElements)
+	assert.Equal(t, 2, pageResponse2.TotalPages)
+}
+
+func TestDynamoDBRepository_CountBy(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	_ = repo.Save(TestEntity{ID: "cb1", Name: "countTest", Value: 1})
+	_ = repo.Save(TestEntity{ID: "cb2", Name: "countTest", Value: 2})
+	_ = repo.Save(TestEntity{ID: "cb3", Name: "another", Value: 1})
+
+	count, err := repo.CountBy("Name", "countTest")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	count, err = repo.CountBy("Value", 1)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	count, err = repo.CountBy("Name", "nonExistent")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestDynamoDBRepository_CountByFilters(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	_ = repo.Save(TestEntity{ID: "cbf1", Name: "filterCount", Value: 10})
+	_ = repo.Save(TestEntity{ID: "cbf2", Name: "filterCount", Value: 20})
+	_ = repo.Save(TestEntity{ID: "cbf3", Name: "other", Value: 10})
+
+	filters := map[string]interface{}{
+		"Name":  "filterCount",
+		"Value": 10,
+	}
+	count, err := repo.CountByFilters(filters)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+
+	filters = map[string]interface{}{
+		"Value": 10,
+	}
+	count, err = repo.CountByFilters(filters)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	filters = map[string]interface{}{
+		"Name": "nonExistent",
+	}
+	count, err = repo.CountByFilters(filters)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), count)
+}
+
+func TestDynamoDBRepository_ExistsBy(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	_ = repo.Save(TestEntity{ID: "eb1", Name: "existsTest", Value: 1})
+
+	exists, err := repo.ExistsBy("Name", "existsTest")
+	assert.NoError(t, err)
+	assert.True(t, exists)
+
+	exists, err = repo.ExistsBy("Name", "nonExistent")
+	assert.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestDynamoDBRepository_ExistsByFilters(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	_ = repo.Save(TestEntity{ID: "ebf1", Name: "filterExists", Value: 10})
+
+	filters := map[string]interface{}{
+		"Name":  "filterExists",
+		"Value": 10,
+	}
+	exists, err := repo.ExistsByFilters(filters)
+	assert.NoError(t, err)
+	assert.True(t, exists)
+
+	filters = map[string]interface{}{
+		"Name":  "filterExists",
+		"Value": 99,
+	}
+	exists, err = repo.ExistsByFilters(filters)
+	assert.NoError(t, err)
+	assert.False(t, exists)
+}
