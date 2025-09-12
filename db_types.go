@@ -24,3 +24,7 @@ type TestEntity struct {
 	Name  string `json:"name"`
 	Value int    `json:"value"`
 }
+
+type Document interface {
+	GetTableName() string
+}

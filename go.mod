@@ -16,9 +16,11 @@ require (
 	github.com/gin-contrib/cors v1.7.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.38.0
 	github.com/testcontainers/testcontainers-go/modules/dynamodb v0.38.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.38.0
 	go.mongodb.org/mongo-driver v1.17.1
 )
 
