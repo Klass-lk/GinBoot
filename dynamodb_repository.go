@@ -3,6 +3,7 @@ package ginboot
 import (
 	"context"
 	"errors"
+	"log"
 	"math"
 	"strings"
 	"time"
@@ -18,11 +19,39 @@ type DynamoDBRepository[T interface{}] struct {
 	tableName string
 }
 
-func NewDynamoDBRepository[T interface{}](client *dynamodb.Client, tableName string) *DynamoDBRepository[T] {
-	return &DynamoDBRepository[T]{
+func NewDynamoDBRepository[T interface{}](client *dynamodb.Client, tableName string, skipTableCreation bool) *DynamoDBRepository[T] {
+	repo := &DynamoDBRepository[T]{
 		client:    client,
 		tableName: tableName,
 	}
+
+	if skipTableCreation {
+		return repo
+	}
+
+	// Check if table exists, if not, create it
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := repo.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(repo.tableName),
+	})
+
+	if err != nil {
+		var notFoundEx *types.ResourceNotFoundException
+		if errors.As(err, &notFoundEx) {
+			log.Printf("DynamoDB table %s does not exist, creating it...", repo.tableName)
+			err = repo.CreateTable(ctx)
+			if err != nil {
+				log.Fatalf("Failed to create DynamoDB table %s: %v", repo.tableName, err)
+			}
+			log.Printf("DynamoDB table %s created successfully.", repo.tableName)
+		} else {
+			log.Fatalf("Failed to describe DynamoDB table %s: %v", repo.tableName, err)
+		}
+	}
+
+	return repo
 }
 
 func (r *DynamoDBRepository[T]) FindById(id string) (T, error) {
@@ -612,4 +641,34 @@ func (r *DynamoDBRepository[T]) ExistsByFilters(filters map[string]interface{}) 
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
+	// Infer primary key from the 'ID' field of the generic type T
+	// This assumes 'ID' is always the primary key and is of type string.
+	// For more complex schemas, this method would need to be extended
+	// or a schema definition passed explicitly.
+
+	input := &dynamodb.CreateTableInput{
+		TableName: aws.String(r.tableName),
+		AttributeDefinitions: []types.AttributeDefinition{
+			{
+				AttributeName: aws.String("id"),
+				AttributeType: types.ScalarAttributeTypeS,
+			},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{
+				AttributeName: aws.String("id"),
+				KeyType:       types.KeyTypeHash,
+			},
+		},
+		ProvisionedThroughput: &types.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(5),
+			WriteCapacityUnits: aws.Int64(5),
+		},
+	}
+
+	_, err := r.client.CreateTable(ctx, input)
+	return err
 }
