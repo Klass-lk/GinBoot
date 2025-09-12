@@ -18,3 +18,9 @@ type PageResponse[T interface{}] struct {
 	TotalPages       int         `json:"totalPages"`
 	TotalElements    int         `json:"totalElements"`
 }
+
+type TestEntity struct {
+	ID    string `json:"id" dynamodbav:"id"`
+	Name  string `json:"name"`
+	Value int    `json:"value"`
+}

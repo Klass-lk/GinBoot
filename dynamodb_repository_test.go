@@ -18,12 +18,6 @@ const (
 	testTableName = "test-table"
 )
 
-type TestEntity struct {
-	ID    string `json:"id" dynamodbav:"id"`
-	Name  string `json:"name"`
-	Value int    `json:"value"`
-}
-
 var (
 	testDynamoClient *dynamodb.Client
 	testRepo         *DynamoDBRepository[TestEntity]
@@ -54,31 +48,8 @@ func TestMain(m *testing.M) {
 
 	testDynamoClient = dynamodb.NewFromConfig(cfg)
 
-	_, err = testDynamoClient.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName: aws.String(testTableName),
-		AttributeDefinitions: []types.AttributeDefinition{
-			{
-				AttributeName: aws.String("id"),
-				AttributeType: types.ScalarAttributeTypeS,
-			},
-		},
-		KeySchema: []types.KeySchemaElement{
-			{
-				AttributeName: aws.String("id"),
-				KeyType:       types.KeyTypeHash,
-			},
-		},
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-
-	if err != nil {
-		panic(err)
-	}
-
-	testRepo = NewDynamoDBRepository[TestEntity](testDynamoClient, testTableName)
+	// Now initialize the actual testRepo that will be used by tests
+	testRepo = NewDynamoDBRepository[TestEntity](testDynamoClient, testTableName, false)
 
 	testTeardown = func() {
 		if err := dynamoDBContainer.Terminate(ctx); err != nil {
