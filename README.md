@@ -56,7 +56,7 @@ These settings will be saved in `ginboot-app.yml` for future deployments.
 
 ## Features
 
-- **Database Operations**: Built-in support for MongoDB through a generic repository interface, enabling common CRUD operations with minimal code.
+- **Database Operations**: Built-in multi-database support (MongoDB, SQL, DynamoDB) through a generic repository interface, enabling common CRUD operations with minimal code.
 - **API Request Handling**: Simplified API request and authentication context extraction.
 - **Error Handling**: Easily define and manage business errors.
 - **Password Encoding**: Inbuilt password hashing and matching utility for secure authentication.
@@ -135,6 +135,22 @@ The repository provides a comprehensive set of methods for database operations:
 - Filtering and querying
 - Pagination support
 - Count and existence checks
+
+## Documentation
+
+For more detailed information on Ginboot's features and usage, refer to the following documentation:
+
+*   [Server Configuration](docs/server.md)
+*   [Routing](docs/routing.md)
+*   [Authentication](docs/authentication.md)
+*   [Database Support](docs/database.md)
+*   [Deployment to AWS Lambda using SAM](docs/deployment.md)
+
+## Database Support
+GinBoot provides a generic repository interface that simplifies data persistence across various database systems. This allows you to interact with different databases using a consistent API, making your application more flexible and maintainable.
+
+### MongoDB Database Support
+
 
 ### API Request Context
 
@@ -602,7 +618,7 @@ adminGroup := ginboot.RouterGroup{
 server.RegisterGroups(apiGroup, adminGroup)
 ```
 
-## SQL Database Support
+### SQL Database Support
 
 GinBoot provides a generic repository interface for SQL databases.
 
@@ -655,63 +671,6 @@ users, err := userRepo.FindByField("email", "john@example.com")
 count, err := userRepo.CountByField("name", "John")
 ```
 
-## DynamoDB Support
-
-GinBoot provides DynamoDB support with a similar interface to other databases.
-
-### DynamoDB Configuration
-
-```go
-// Create DynamoDB configuration
-config := ginboot.NewDynamoConfig().
-    WithRegion("us-west-2").
-    WithCredentials(aws.NewCredentials("access_key", "secret_key"))
-
-// Connect to DynamoDB
-db, err := config.Connect()
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-### DynamoDB Repository Example
-
-```go
-type Product struct {
-    ID          string  `dynamodbav:"id"`
-    Name        string  `dynamodbav:"name"`
-    Price       float64 `dynamodbav:"price"`
-    CategoryID  string  `dynamodbav:"category_id"`
-}
-
-type ProductRepository struct {
-    *ginboot.DynamoRepository[Product]
-}
-
-// Create a new repository
-productRepo := ginboot.NewDynamoRepository[Product](db, "products")
-
-// Use the repository
-product := Product{
-    Name:       "Awesome Product",
-    Price:      99.99,
-    CategoryID: "electronics",
-}
-
-// Basic CRUD operations
-err = productRepo.Save(&product)
-products, err := productRepo.FindAll()
-product, err := productRepo.FindById("123")
-err = productRepo.Delete("123")
-
-// Query operations
-products, err := productRepo.Query("category_id", "electronics")
-count, err := productRepo.CountByField("category_id", "electronics")
-
-// Batch operations
-err = productRepo.BatchSave([]Product{product1, product2})
-products, err := productRepo.BatchGet([]string{"id1", "id2"})
-```
 
 ## Contributing
 Contributions are welcome! Please read our contributing guidelines for more details.
