@@ -1,13 +1,9 @@
 name: Release
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - '**.go'
-      - 'go.mod'
-      - 'go.sum'
-      - '.github/workflows/release.yml'
+  release:
+    types:
+      - published
 
 jobs:
   test:
