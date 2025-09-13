@@ -295,7 +295,7 @@ import (
 )
 
 type Order struct {
-    ID         string  `dynamodbav:"id"`
+    ID         string  `ginboot:"id"`
     CustomerID string  `dynamodbav:"customer_id"`
     Amount     float64 `dynamodbav:"amount"`
     Status     string  `dynamodbav:"status"`
