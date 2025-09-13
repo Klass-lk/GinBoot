@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"math"
+	"reflect"
 	"strings"
 	"time"
 
@@ -130,6 +131,21 @@ func (r *DynamoDBRepository[T]) Save(doc T) error {
 		return err
 	}
 
+	// Get the primary key field name from the struct tag
+	pkField := r.getPrimaryKeyField(doc)
+	val := reflect.ValueOf(doc)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	pkValue := val.FieldByName(pkField).Interface()
+
+	// Marshal the primary key value and add it to the item map
+	pkAttribute, err := attributevalue.Marshal(pkValue)
+	if err != nil {
+		return err
+	}
+	item["id"] = pkAttribute
+
 	input := &dynamodb.PutItemInput{
 		TableName: &r.tableName,
 		Item:      item,
@@ -157,6 +173,22 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T) error {
 		if err != nil {
 			return err
 		}
+
+		// Get the primary key field name from the struct tag
+		pkField := r.getPrimaryKeyField(doc)
+		val := reflect.ValueOf(doc)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+		pkValue := val.FieldByName(pkField).Interface()
+
+		// Marshal the primary key value and add it to the item map
+		pkAttribute, err := attributevalue.Marshal(pkValue)
+		if err != nil {
+			return err
+		}
+		item["id"] = pkAttribute
+
 		writeRequests[i] = types.WriteRequest{
 			PutRequest: &types.PutRequest{Item: item},
 		}
@@ -180,6 +212,21 @@ func (r *DynamoDBRepository[T]) Update(doc T) error {
 	if err != nil {
 		return err
 	}
+
+	// Get the primary key field name from the struct tag
+	pkField := r.getPrimaryKeyField(doc)
+	val := reflect.ValueOf(doc)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	pkValue := val.FieldByName(pkField).Interface()
+
+	// Marshal the primary key value and add it to the item map
+	pkAttribute, err := attributevalue.Marshal(pkValue)
+	if err != nil {
+		return err
+	}
+	item["id"] = pkAttribute
 
 	input := &dynamodb.PutItemInput{
 		TableName: &r.tableName,
@@ -671,4 +718,21 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 
 	_, err := r.client.CreateTable(ctx, input)
 	return err
+}
+
+func (r *DynamoDBRepository[T]) getPrimaryKeyField(entity T) string {
+	val := reflect.ValueOf(entity)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	typ := val.Type()
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if _, ok := field.Tag.Lookup("ginboot"); ok {
+			return field.Name
+		}
+	}
+
+	return "id" // Default to "id" if no tag is found
 }
