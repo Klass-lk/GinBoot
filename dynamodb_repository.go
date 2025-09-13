@@ -833,7 +833,7 @@ func (r *DynamoDBRepository[T]) getSK(entity T) (string, error) {
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		if tag, ok := field.Tag.Lookup("ginboot"); ok && tag == "id" {
+		if _, ok := field.Tag.Lookup("ginboot"); ok {
 			return val.Field(i).String(), nil
 		}
 	}
