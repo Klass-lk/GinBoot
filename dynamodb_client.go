@@ -3,14 +3,14 @@ package ginboot
 import (
 	"context"
 
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
 // NewDynamoDBClient creates and returns a new DynamoDB client.
 // It takes a region as input and loads AWS configuration.
 func NewDynamoDBClient(region string) (*dynamodb.Client, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithRegion(region))
 	if err != nil {
 		return nil, err
 	}
