@@ -44,10 +44,10 @@ func TestMain(m *testing.M) {
 	testDynamoClient = dynamodb.NewFromConfig(cfg)
 
 	// Set the table name globally
-	NewDynamoDBConfig().WithTableName("test-table")
+	NewDynamoDBConfig().WithTableName("test-table").WithSkipTableCreation(false)
 
 	// Now initialize the actual testRepo that will be used by tests
-	testRepo = NewDynamoDBRepository[TestEntity](testDynamoClient, false)
+	testRepo = NewDynamoDBRepository[TestEntity](testDynamoClient)
 
 	testTeardown = func() {
 		if err := dynamoDBContainer.Terminate(ctx); err != nil {

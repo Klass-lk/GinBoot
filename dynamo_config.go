@@ -8,7 +8,8 @@ var (
 )
 
 type DynamoDBConfig struct {
-	TableName string
+	TableName         string
+	SkipTableCreation bool
 }
 
 func NewDynamoDBConfig() *DynamoDBConfig {
@@ -20,5 +21,10 @@ func NewDynamoDBConfig() *DynamoDBConfig {
 
 func (c *DynamoDBConfig) WithTableName(name string) *DynamoDBConfig {
 	c.TableName = name
+	return c
+}
+
+func (c *DynamoDBConfig) WithSkipTableCreation(skip bool) *DynamoDBConfig {
+	c.SkipTableCreation = skip
 	return c
 }

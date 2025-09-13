@@ -27,12 +27,12 @@ type DynamoDBRepository[T any] struct {
 	client *dynamodb.Client
 }
 
-func NewDynamoDBRepository[T any](client *dynamodb.Client, skipTableCreation bool) *DynamoDBRepository[T] {
+func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T] {
 	repo := &DynamoDBRepository[T]{
 		client: client,
 	}
 
-	if skipTableCreation {
+	if config.SkipTableCreation {
 		return repo
 	}
 
