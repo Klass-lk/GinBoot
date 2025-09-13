@@ -20,7 +20,7 @@ type PageResponse[T interface{}] struct {
 }
 
 type TestEntity struct {
-	ID    string `json:"_id" ginboot:"_id"`
+	ID    string `json:"id" ginboot:"id"`
 	Name  string `json:"name"`
 	Value int    `json:"value"`
 }

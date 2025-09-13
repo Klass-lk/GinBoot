@@ -57,17 +57,3 @@ jobs:
           default_prerelease_bump: patch
           release_branches: main
           tag_prefix: v
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        if: steps.tag_version.outputs.new_tag != steps.get_latest_tag.outputs.LATEST_TAG
-        with:
-          tag_name: ${{ steps.tag_version.outputs.new_tag }}
-          name: Release ${{ steps.tag_version.outputs.new_tag }}
-          body: |
-            ## What's Changed
-            ${{ steps.tag_version.outputs.changelog }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

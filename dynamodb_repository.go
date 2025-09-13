@@ -2,11 +2,10 @@ package ginboot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
-	"math"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,18 +14,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-type DynamoDBRepository[T interface{}] struct {
-	client    *dynamodb.Client
-	tableName string
+type DynamoDBItem struct {
+	PK        string `dynamodbav:"pk"`
+	SK        string `dynamodbav:"sk"`
+	Data      string `dynamodbav:"data"`
+	CreatedAt int64  `dynamodbav:"createdAt"`
+	UpdatedAt int64  `dynamodbav:"updatedAt"`
+	Version   int64  `dynamodbav:"version"`
 }
 
-func NewDynamoDBRepository[T interface{}](client *dynamodb.Client, tableName string, skipTableCreation bool) *DynamoDBRepository[T] {
+type DynamoDBRepository[T any] struct {
+	client *dynamodb.Client
+}
+
+func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T] {
 	repo := &DynamoDBRepository[T]{
-		client:    client,
-		tableName: tableName,
+		client: client,
 	}
 
-	if skipTableCreation {
+	if config.SkipTableCreation {
 		return repo
 	}
 
@@ -35,51 +41,68 @@ func NewDynamoDBRepository[T interface{}](client *dynamodb.Client, tableName str
 	defer cancel()
 
 	_, err := repo.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(repo.tableName),
+		TableName: aws.String(config.TableName),
 	})
 
 	if err != nil {
 		var notFoundEx *types.ResourceNotFoundException
 		if errors.As(err, &notFoundEx) {
-			log.Printf("DynamoDB table %s does not exist, creating it...", repo.tableName)
+			log.Printf("DynamoDB table %s does not exist, creating it...", config.TableName)
 			err = repo.CreateTable(ctx)
 			if err != nil {
-				log.Fatalf("Failed to create DynamoDB table %s: %v", repo.tableName, err)
+				log.Fatalf("Failed to create DynamoDB table %s: %v", config.TableName, err)
 			}
-			log.Printf("DynamoDB table %s created successfully.", repo.tableName)
+			log.Printf("DynamoDB table %s created successfully.", config.TableName)
 		} else {
-			log.Fatalf("Failed to describe DynamoDB table %s: %v", repo.tableName, err)
+			log.Fatalf("Failed to describe DynamoDB table %s: %v", config.TableName, err)
 		}
 	}
 
 	return repo
 }
 
-func (r *DynamoDBRepository[T]) FindById(id string) (T, error) {
+func (r *DynamoDBRepository[T]) findById(id string) (DynamoDBItem, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var result T
-	key, err := attributevalue.Marshal(id)
+	var item DynamoDBItem
+	var entity T
+	pk := r.getPK(entity)
+
+	key, err := attributevalue.MarshalMap(map[string]string{
+		"pk": pk,
+		"sk": id,
+	})
 	if err != nil {
-		return result, err
+		return item, err
 	}
 
 	input := &dynamodb.GetItemInput{
-		TableName: &r.tableName,
-		Key:       map[string]types.AttributeValue{"id": key},
+		TableName: aws.String(config.TableName),
+		Key:       key,
 	}
 
 	output, err := r.client.GetItem(ctx, input)
 	if err != nil {
-		return result, err
+		return item, err
 	}
 
 	if output.Item == nil {
-		return result, errors.New("item not found")
+		return item, errors.New("item not found")
 	}
 
-	err = attributevalue.UnmarshalMap(output.Item, &result)
+	err = attributevalue.UnmarshalMap(output.Item, &item)
+	return item, err
+}
+
+func (r *DynamoDBRepository[T]) FindById(id string) (T, error) {
+	var result T
+	item, err := r.findById(id)
+	if err != nil {
+		return result, err
+	}
+
+	err = json.Unmarshal([]byte(item.Data), &result)
 	return result, err
 }
 
@@ -87,18 +110,24 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	var entity T
+	pk := r.getPK(entity)
+
 	keys := make([]map[string]types.AttributeValue, len(ids))
 	for i, id := range ids {
-		key, err := attributevalue.Marshal(id)
+		key, err := attributevalue.MarshalMap(map[string]string{
+			"pk": pk,
+			"sk": id,
+		})
 		if err != nil {
 			return nil, err
 		}
-		keys[i] = map[string]types.AttributeValue{"id": key}
+		keys[i] = key
 	}
 
 	input := &dynamodb.BatchGetItemInput{
 		RequestItems: map[string]types.KeysAndAttributes{
-			r.tableName: {
+			config.TableName: {
 				Keys: keys,
 			},
 		},
@@ -110,13 +139,19 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string) ([]T, error) {
 	}
 
 	var results []T
-	for _, item := range output.Responses[r.tableName] {
-		var entity T
-		err = attributevalue.UnmarshalMap(item, &entity)
+	for _, item := range output.Responses[config.TableName] {
+		var result T
+		var temp DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &temp)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, entity)
+
+		err = json.Unmarshal([]byte(temp.Data), &result)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, result)
 	}
 
 	return results, nil
@@ -126,29 +161,52 @@ func (r *DynamoDBRepository[T]) Save(doc T) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	item, err := attributevalue.MarshalMap(doc)
+	now := time.Now().UnixMilli()
+
+	pk := r.getPK(doc)
+	sk, err := r.getSK(doc)
 	if err != nil {
 		return err
 	}
 
-	// Get the primary key field name from the struct tag
-	pkField := r.getPrimaryKeyField(doc)
-	val := reflect.ValueOf(doc)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-	pkValue := val.FieldByName(pkField).Interface()
+	// Get current version and increment it
+	var version int64
+	var createdAt int64
 
-	// Marshal the primary key value and add it to the item map
-	pkAttribute, err := attributevalue.Marshal(pkValue)
+	// Try to find existing item to get version
+	item, err := r.findById(sk)
+	if err == nil {
+		// Item exists, get its version and createdAt
+		version = item.Version
+		createdAt = item.CreatedAt
+	}
+
+	data, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}
-	item["id"] = pkAttribute
+
+	newItem := DynamoDBItem{
+		PK:        pk,
+		SK:        sk,
+		Data:      string(data),
+		CreatedAt: createdAt,
+		UpdatedAt: now,
+		Version:   version + 1,
+	}
+
+	if newItem.CreatedAt == 0 {
+		newItem.CreatedAt = now
+	}
+
+	av, err := attributevalue.MarshalMap(newItem)
+	if err != nil {
+		return err
+	}
 
 	input := &dynamodb.PutItemInput{
-		TableName: &r.tableName,
-		Item:      item,
+		TableName: aws.String(config.TableName),
+		Item:      av,
 	}
 
 	_, err = r.client.PutItem(ctx, input)
@@ -169,34 +227,61 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T) error {
 
 	writeRequests := make([]types.WriteRequest, len(docs))
 	for i, doc := range docs {
-		item, err := attributevalue.MarshalMap(doc)
+		now := time.Now().UnixMilli()
+
+		pk := r.getPK(doc)
+		sk, err := r.getSK(doc)
 		if err != nil {
 			return err
 		}
 
-		// Get the primary key field name from the struct tag
-		pkField := r.getPrimaryKeyField(doc)
-		val := reflect.ValueOf(doc)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
-		pkValue := val.FieldByName(pkField).Interface()
+		// Get current version and increment it
+		var version int64
+		var createdAt int64
 
-		// Marshal the primary key value and add it to the item map
-		pkAttribute, err := attributevalue.Marshal(pkValue)
+		// Try to find existing item to get version
+		item, err := r.FindById(sk)
+		if err == nil {
+			// Item exists, get its version and createdAt
+			val := reflect.ValueOf(item)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			version = val.FieldByName("Version").Int()
+			createdAt = val.FieldByName("CreatedAt").Int()
+		}
+
+		data, err := json.Marshal(doc)
 		if err != nil {
 			return err
 		}
-		item["id"] = pkAttribute
+
+		newItem := DynamoDBItem{
+			PK:        pk,
+			SK:        sk,
+			Data:      string(data),
+			CreatedAt: createdAt,
+			UpdatedAt: now,
+			Version:   version + 1,
+		}
+
+		if newItem.CreatedAt == 0 {
+			newItem.CreatedAt = now
+		}
+
+		av, err := attributevalue.MarshalMap(newItem)
+		if err != nil {
+			return err
+		}
 
 		writeRequests[i] = types.WriteRequest{
-			PutRequest: &types.PutRequest{Item: item},
+			PutRequest: &types.PutRequest{Item: av},
 		}
 	}
 
 	input := &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
-			r.tableName: writeRequests,
+			config.TableName: writeRequests,
 		},
 	}
 
@@ -205,50 +290,27 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T) error {
 }
 
 func (r *DynamoDBRepository[T]) Update(doc T) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	item, err := attributevalue.MarshalMap(doc)
-	if err != nil {
-		return err
-	}
-
-	// Get the primary key field name from the struct tag
-	pkField := r.getPrimaryKeyField(doc)
-	val := reflect.ValueOf(doc)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-	pkValue := val.FieldByName(pkField).Interface()
-
-	// Marshal the primary key value and add it to the item map
-	pkAttribute, err := attributevalue.Marshal(pkValue)
-	if err != nil {
-		return err
-	}
-	item["id"] = pkAttribute
-
-	input := &dynamodb.PutItemInput{
-		TableName: &r.tableName,
-		Item:      item,
-	}
-
-	_, err = r.client.PutItem(ctx, input)
-	return err
+	return r.Save(doc)
 }
 
 func (r *DynamoDBRepository[T]) Delete(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	key, err := attributevalue.Marshal(id)
+	var entity T
+	pk := r.getPK(entity)
+
+	key, err := attributevalue.MarshalMap(map[string]string{
+		"pk": pk,
+		"sk": id,
+	})
 	if err != nil {
 		return err
 	}
 
 	input := &dynamodb.DeleteItemInput{
-		TableName: &r.tableName,
-		Key:       map[string]types.AttributeValue{"id": key},
+		TableName: aws.String(config.TableName),
+		Key:       key,
 	}
 
 	_, err = r.client.DeleteItem(ctx, input)
@@ -260,40 +322,46 @@ func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}) (T, e
 	defer cancel()
 
 	var result T
+	pk := r.getPK(result)
 
-	// Note: Using Scan for FindOneBy on arbitrary fields can be inefficient for large tables.
-	// For better performance on frequently queried non-primary key fields, consider using Global Secondary Indexes (GSIs).
-
-	filterExpression := aws.String("#F = :val")
-	expressionAttributeValues, err := attributevalue.MarshalMap(map[string]interface{}{
-		":val": value,
-	})
-	if err != nil {
-		return result, err
-	}
-	expressionAttributeNames := map[string]string{
-		"#F": field,
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	input := &dynamodb.ScanInput{
-		TableName:                 &r.tableName,
-		Limit:                     aws.Int32(1),
-		FilterExpression:          filterExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
-		ExpressionAttributeNames:  expressionAttributeNames,
-	}
-
-	output, err := r.client.Scan(ctx, input)
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return result, err
 	}
 
-	if len(output.Items) == 0 {
-		return result, errors.New("item not found")
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
+		if err != nil {
+			return result, err
+		}
+
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return result, err
+		}
+
+		val := reflect.ValueOf(temp)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		fieldValue := val.FieldByName(field).Interface()
+		if fieldValue == value {
+			return temp, nil
+		}
 	}
 
-	err = attributevalue.UnmarshalMap(output.Items[0], &result)
-	return result, err
+	return result, errors.New("item not found")
 }
 
 func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{}) (T, error) {
@@ -301,46 +369,54 @@ func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{})
 	defer cancel()
 
 	var result T
+	pk := r.getPK(result)
 
-	// Note: Using Scan for FindOneByFilters can be inefficient for large tables.
-	// For better performance on frequently queried non-primary key fields, consider using Global Secondary Indexes (GSIs).
-
-	filterExpressions := make([]string, 0, len(filters))
-	expressionAttributeValues := make(map[string]types.AttributeValue)
-	expressionAttributeNames := make(map[string]string)
-
-	for field, value := range filters {
-		placeholder := "#" + field // Use a placeholder for the attribute name
-		filterExpressions = append(filterExpressions, placeholder+" = :"+field)
-		attrValue, err := attributevalue.Marshal(value)
-		if err != nil {
-			return result, err
-		}
-		expressionAttributeValues[":"+field] = attrValue
-		expressionAttributeNames[placeholder] = field // Map placeholder to actual field name
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	filterExpression := aws.String(strings.Join(filterExpressions, " AND "))
-
-	input := &dynamodb.ScanInput{
-		TableName:                 &r.tableName,
-		Limit:                     aws.Int32(1),
-		FilterExpression:          filterExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
-		ExpressionAttributeNames:  expressionAttributeNames,
-	}
-
-	output, err := r.client.Scan(ctx, input)
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return result, err
 	}
 
-	if len(output.Items) == 0 {
-		return result, errors.New("item not found")
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
+		if err != nil {
+			return result, err
+		}
+
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return result, err
+		}
+
+		match := true
+		val := reflect.ValueOf(temp)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		for field, value := range filters {
+			fieldValue := val.FieldByName(field).Interface()
+			if fieldValue != value {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			return temp, nil
+		}
 	}
 
-	err = attributevalue.UnmarshalMap(output.Items[0], &result)
-	return result, err
+	return result, errors.New("item not found")
 }
 
 func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}) ([]T, error) {
@@ -348,35 +424,47 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}) ([]T, er
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity)
 
-	// Note: Using Scan for FindBy on arbitrary fields can be inefficient for large tables.
-	// For better performance on frequently queried non-primary key fields, consider using Global Secondary Indexes (GSIs).
-
-	filterExpression := aws.String("#F = :val")
-	expressionAttributeValues, err := attributevalue.MarshalMap(map[string]interface{}{
-		":val": value,
-	})
-	if err != nil {
-		return nil, err
-	}
-	expressionAttributeNames := map[string]string{
-		"#F": field,
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	input := &dynamodb.ScanInput{
-		TableName:                 &r.tableName,
-		FilterExpression:          filterExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
-		ExpressionAttributeNames:  expressionAttributeNames,
-	}
-
-	output, err := r.client.Scan(ctx, input)
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
-	err = attributevalue.UnmarshalListOfMaps(output.Items, &results)
-	return results, err
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
+		if err != nil {
+			return nil, err
+		}
+
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return nil, err
+		}
+
+		val := reflect.ValueOf(temp)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		fieldValue := val.FieldByName(field).Interface()
+		if fieldValue == value {
+			results = append(results, temp)
+		}
+	}
+
+	return results, nil
 }
 
 func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}) ([]T, error) {
@@ -384,60 +472,93 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}) ([
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity)
 
-	// Note: Using Scan for FindByFilters can be inefficient for large tables.
-	// For better performance on frequently queried non-primary key fields, consider using Global Secondary Indexes (GSIs).
-
-	filterExpressions := make([]string, 0, len(filters))
-	expressionAttributeValues := make(map[string]types.AttributeValue)
-	expressionAttributeNames := make(map[string]string)
-
-	for field, value := range filters {
-		placeholder := "#" + field // Use a placeholder for the attribute name
-		filterExpressions = append(filterExpressions, placeholder+" = :"+field)
-		attrValue, err := attributevalue.Marshal(value)
-		if err != nil {
-			return nil, err
-		}
-		expressionAttributeValues[":"+field] = attrValue
-		expressionAttributeNames[placeholder] = field // Map placeholder to actual field name
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	filterExpression := aws.String(strings.Join(filterExpressions, " AND "))
-
-	input := &dynamodb.ScanInput{
-		TableName:                 &r.tableName,
-		FilterExpression:          filterExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
-		ExpressionAttributeNames:  expressionAttributeNames,
-	}
-
-	output, err := r.client.Scan(ctx, input)
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
-	err = attributevalue.UnmarshalListOfMaps(output.Items, &results)
-	return results, err
-}
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
+		if err != nil {
+			return nil, err
+		}
 
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return nil, err
+		}
+
+		match := true
+		val := reflect.ValueOf(temp)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		for field, value := range filters {
+			fieldValue := val.FieldByName(field).Interface()
+			if fieldValue != value {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			results = append(results, temp)
+		}
+	}
+
+	return results, nil
+}
 func (r *DynamoDBRepository[T]) FindAll(findOpts ...interface{}) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity)
 
-	input := &dynamodb.ScanInput{
-		TableName: &r.tableName,
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	output, err := r.client.Scan(ctx, input)
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 
-	err = attributevalue.UnmarshalListOfMaps(output.Items, &results)
-	return results, err
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
+		if err != nil {
+			return nil, err
+		}
+
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, temp)
+	}
+
+	return results, nil
 }
 
 func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error) {
@@ -445,67 +566,54 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageR
 	defer cancel()
 
 	var results []T
-	var lastEvaluatedKey map[string]types.AttributeValue
+	var entity T
+	pk := r.getPK(entity)
 
-	// DynamoDB pagination works with ExclusiveStartKey, not offset.
-	// To simulate offset, we need to scan and discard items until the desired page.
-	// This can be inefficient for deep pagination.
-
-	// First, get the total count (can be expensive for large tables)
-	countInput := &dynamodb.ScanInput{
-		TableName: &r.tableName,
-		Select:    types.SelectCount,
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
-	countOutput, err := r.client.Scan(ctx, countInput)
+
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return PageResponse[T]{}, err
 	}
-	totalElements := int(countOutput.Count)
 
-	// Calculate the number of items to skip
-	skip := (pageRequest.Page - 1) * pageRequest.Size
-
-	// Perform scan operations to get to the correct page
-	itemsScanned := 0
-	for itemsScanned < skip {
-		scanInput := &dynamodb.ScanInput{
-			TableName:         &r.tableName,
-			Limit:             aws.Int32(int32(skip - itemsScanned)),
-			ExclusiveStartKey: lastEvaluatedKey,
-		}
-		scanOutput, err := r.client.Scan(ctx, scanInput)
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
 		if err != nil {
 			return PageResponse[T]{}, err
 		}
-		itemsScanned += len(scanOutput.Items)
-		lastEvaluatedKey = scanOutput.LastEvaluatedKey
-		if lastEvaluatedKey == nil && itemsScanned < skip {
-			// Reached end of table before reaching the skip point
-			break
+
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return PageResponse[T]{}, err
 		}
+		results = append(results, temp)
 	}
 
-	// Now fetch the actual page content
-	scanInput := &dynamodb.ScanInput{
-		TableName:         &r.tableName,
-		Limit:             aws.Int32(int32(pageRequest.Size)),
-		ExclusiveStartKey: lastEvaluatedKey,
+	totalElements := len(results)
+	totalPages := (totalElements + pageRequest.Size - 1) / pageRequest.Size
+
+	start := (pageRequest.Page - 1) * pageRequest.Size
+	end := start + pageRequest.Size
+	if start > totalElements {
+		start = totalElements
 	}
-	scanOutput, err := r.client.Scan(ctx, scanInput)
-	if err != nil {
-		return PageResponse[T]{}, err
+	if end > totalElements {
+		end = totalElements
 	}
 
-	err = attributevalue.UnmarshalListOfMaps(scanOutput.Items, &results)
-	if err != nil {
-		return PageResponse[T]{}, err
-	}
-
-	totalPages := int(math.Ceil(float64(totalElements) / float64(pageRequest.Size)))
+	pagedResults := results[start:end]
 
 	return PageResponse[T]{
-		Contents:         results,
-		NumberOfElements: len(results),
+		Contents:         pagedResults,
+		NumberOfElements: len(pagedResults),
 		Pageable:         pageRequest,
 		TotalElements:    totalElements,
 		TotalPages:       totalPages,
@@ -516,84 +624,72 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var allMatchingItems []T
-	var lastEvaluatedKey map[string]types.AttributeValue
+	var results []T
+	var entity T
+	pk := r.getPK(entity)
 
-	// Note: Using Scan for FindByPaginated can be inefficient for large tables and deep pagination.
-	// For better performance, consider using Global Secondary Indexes (GSIs) with Query operations
-	// if your pagination and filtering needs align with GSI capabilities.
-
-	filterExpressions := make([]string, 0, len(filters))
-	expressionAttributeValues := make(map[string]types.AttributeValue)
-	expressionAttributeNames := make(map[string]string)
-
-	for field, value := range filters {
-		placeholder := "#" + field
-		filterExpressions = append(filterExpressions, placeholder+" = :"+field)
-		attrValue, err := attributevalue.Marshal(value)
-		if err != nil {
-			return PageResponse[T]{}, err
-		}
-		expressionAttributeValues[":"+field] = attrValue
-		expressionAttributeNames[placeholder] = field
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	filterExpression := aws.String(strings.Join(filterExpressions, " AND "))
+	output, err := r.client.Query(ctx, input)
+	if err != nil {
+		return PageResponse[T]{}, err
+	}
 
-	// Continuously scan until we have enough items or no more items
-	for {
-		scanInput := &dynamodb.ScanInput{
-			TableName:                 &r.tableName,
-			Limit:                     aws.Int32(100), // Scan a reasonable number of items at a time
-			ExclusiveStartKey:         lastEvaluatedKey,
-			FilterExpression:          filterExpression,
-			ExpressionAttributeValues: expressionAttributeValues,
-			ExpressionAttributeNames:  expressionAttributeNames,
-		}
-
-		scanOutput, err := r.client.Scan(ctx, scanInput)
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
 		if err != nil {
 			return PageResponse[T]{}, err
 		}
 
-		var scannedItems []T
-		err = attributevalue.UnmarshalListOfMaps(scanOutput.Items, &scannedItems)
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
 		if err != nil {
 			return PageResponse[T]{}, err
 		}
-		allMatchingItems = append(allMatchingItems, scannedItems...)
 
-		lastEvaluatedKey = scanOutput.LastEvaluatedKey
-		if lastEvaluatedKey == nil {
-			break // No more items to scan
+		match := true
+		val := reflect.ValueOf(temp)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		for field, value := range filters {
+			fieldValue := val.FieldByName(field).Interface()
+			if fieldValue != value {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			results = append(results, temp)
 		}
 	}
 
-	totalElements := len(allMatchingItems)
+	totalElements := len(results)
+	totalPages := (totalElements + pageRequest.Size - 1) / pageRequest.Size
 
-	skip := (pageRequest.Page - 1) * pageRequest.Size
-	if skip >= totalElements {
-		return PageResponse[T]{
-			Contents:         []T{},
-			NumberOfElements: 0,
-			Pageable:         pageRequest,
-			TotalElements:    totalElements,
-			TotalPages:       int(math.Ceil(float64(totalElements) / float64(pageRequest.Size))),
-		}, nil
+	start := (pageRequest.Page - 1) * pageRequest.Size
+	end := start + pageRequest.Size
+	if start > totalElements {
+		start = totalElements
+	}
+	if end > totalElements {
+		end = totalElements
 	}
 
-	endIndex := skip + pageRequest.Size
-	if endIndex > totalElements {
-		endIndex = totalElements
-	}
-
-	results := allMatchingItems[skip:endIndex]
-
-	totalPages := int(math.Ceil(float64(totalElements) / float64(pageRequest.Size)))
+	pagedResults := results[start:end]
 
 	return PageResponse[T]{
-		Contents:         results,
-		NumberOfElements: len(results),
+		Contents:         pagedResults,
+		NumberOfElements: len(pagedResults),
 		Pageable:         pageRequest,
 		TotalElements:    totalElements,
 		TotalPages:       totalPages,
@@ -604,74 +700,104 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}) (int64,
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Note: Using Scan for CountBy can be inefficient for large tables.
-	// For better performance on frequently queried non-primary key fields, consider using Global Secondary Indexes (GSIs).
+	var entity T
+	pk := r.getPK(entity)
 
-	filterExpression := aws.String("#F = :val")
-	expressionAttributeValues, err := attributevalue.MarshalMap(map[string]interface{}{
-		":val": value,
-	})
-	if err != nil {
-		return 0, err
-	}
-	expressionAttributeNames := map[string]string{
-		"#F": field,
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	input := &dynamodb.ScanInput{
-		TableName:                 &r.tableName,
-		Select:                    types.SelectCount,
-		FilterExpression:          filterExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
-		ExpressionAttributeNames:  expressionAttributeNames,
-	}
-
-	output, err := r.client.Scan(ctx, input)
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return 0, err
 	}
 
-	return int64(output.Count), nil
+	var count int64
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
+		if err != nil {
+			return 0, err
+		}
+
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return 0, err
+		}
+
+		val := reflect.ValueOf(temp)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		fieldValue := val.FieldByName(field).Interface()
+		if fieldValue == value {
+			count++
+		}
+	}
+
+	return count, nil
 }
 
 func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Note: Using Scan for CountByFilters can be inefficient for large tables.
-	// For better performance on frequently queried non-primary key fields, consider using Global Secondary Indexes (GSIs).
+	var entity T
+	pk := r.getPK(entity)
 
-	filterExpressions := make([]string, 0, len(filters))
-	expressionAttributeValues := make(map[string]types.AttributeValue)
-	expressionAttributeNames := make(map[string]string)
-
-	for field, value := range filters {
-		placeholder := "#" + field
-		filterExpressions = append(filterExpressions, placeholder+" = :"+field)
-		attrValue, err := attributevalue.Marshal(value)
-		if err != nil {
-			return 0, err
-		}
-		expressionAttributeValues[":"+field] = attrValue
-		expressionAttributeNames[placeholder] = field
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(config.TableName),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
 	}
 
-	filterExpression := aws.String(strings.Join(filterExpressions, " AND "))
-
-	input := &dynamodb.ScanInput{
-		TableName:                 &r.tableName,
-		Select:                    types.SelectCount,
-		FilterExpression:          filterExpression,
-		ExpressionAttributeValues: expressionAttributeValues,
-		ExpressionAttributeNames:  expressionAttributeNames,
-	}
-
-	output, err := r.client.Scan(ctx, input)
+	output, err := r.client.Query(ctx, input)
 	if err != nil {
 		return 0, err
 	}
 
-	return int64(output.Count), nil
+	var count int64
+	for _, item := range output.Items {
+		var temp T
+		var tempItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &tempItem)
+		if err != nil {
+			return 0, err
+		}
+
+		err = json.Unmarshal([]byte(tempItem.Data), &temp)
+		if err != nil {
+			return 0, err
+		}
+
+		match := true
+		val := reflect.ValueOf(temp)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+
+		for field, value := range filters {
+			fieldValue := val.FieldByName(field).Interface()
+			if fieldValue != value {
+				match = false
+				break
+			}
+		}
+
+		if match {
+			count++
+		}
+	}
+
+	return count, nil
 }
 
 func (r *DynamoDBRepository[T]) ExistsBy(field string, value interface{}) (bool, error) {
@@ -690,24 +816,52 @@ func (r *DynamoDBRepository[T]) ExistsByFilters(filters map[string]interface{}) 
 	return count > 0, nil
 }
 
-func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
-	// Infer primary key from the 'ID' field of the generic type T
-	// This assumes 'ID' is always the primary key and is of type string.
-	// For more complex schemas, this method would need to be extended
-	// or a schema definition passed explicitly.
+func (r *DynamoDBRepository[T]) getPK(entity T) string {
+	val := reflect.ValueOf(entity)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	return val.Type().Name()
+}
 
+func (r *DynamoDBRepository[T]) getSK(entity T) (string, error) {
+	val := reflect.ValueOf(entity)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	typ := val.Type()
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if tag, ok := field.Tag.Lookup("ginboot"); ok && tag == "id" {
+			return val.Field(i).String(), nil
+		}
+	}
+
+	return "", errors.New("ginboot:\"id\" tag not found in struct")
+}
+
+func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 	input := &dynamodb.CreateTableInput{
-		TableName: aws.String(r.tableName),
+		TableName: aws.String(config.TableName),
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
-				AttributeName: aws.String("id"),
+				AttributeName: aws.String("pk"),
+				AttributeType: types.ScalarAttributeTypeS,
+			},
+			{
+				AttributeName: aws.String("sk"),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 		},
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String("id"),
+				AttributeName: aws.String("pk"),
 				KeyType:       types.KeyTypeHash,
+			},
+			{
+				AttributeName: aws.String("sk"),
+				KeyType:       types.KeyTypeRange,
 			},
 		},
 		ProvisionedThroughput: &types.ProvisionedThroughput{
@@ -718,21 +872,4 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 
 	_, err := r.client.CreateTable(ctx, input)
 	return err
-}
-
-func (r *DynamoDBRepository[T]) getPrimaryKeyField(entity T) string {
-	val := reflect.ValueOf(entity)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-	typ := val.Type()
-
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if _, ok := field.Tag.Lookup("ginboot"); ok {
-			return field.Name
-		}
-	}
-
-	return "id" // Default to "id" if no tag is found
 }
