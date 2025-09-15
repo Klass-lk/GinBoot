@@ -55,4 +55,7 @@ type GenericRepository[T any] interface {
 
 	// ExistsByFilters checks if a document exists by multiple filters
 	ExistsByFilters(filters map[string]interface{}) (bool, error)
+
+	// DeleteAll deletes all documents
+	DeleteAll(options ...interface{}) error
 }

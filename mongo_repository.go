@@ -287,6 +287,14 @@ func (r *MongoRepository[T]) ExistsByFilters(filters map[string]interface{}) (bo
 	return count > 0, err
 }
 
+func (r *MongoRepository[T]) DeleteAll(options ...interface{}) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := r.collection.DeleteMany(ctx, bson.M{})
+	return err
+}
+
 func (r *MongoRepository[T]) Query() *mongo.Collection {
 	return r.collection
 }

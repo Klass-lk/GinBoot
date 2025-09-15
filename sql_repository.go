@@ -304,6 +304,12 @@ func (r *SQLRepository[T]) ExistsByFilters(filters map[string]interface{}) (bool
 	return count > 0, err
 }
 
+func (r *SQLRepository[T]) DeleteAll(options ...interface{}) error {
+	query := fmt.Sprintf("DELETE FROM %s", r.tableName)
+	_, err := r.db.Exec(query)
+	return err
+}
+
 func (r *SQLRepository[T]) scanRow(row *sql.Row, dest *T) error {
 	val := reflect.ValueOf(dest).Elem() // Get the value that dest points to
 	typ := val.Type()

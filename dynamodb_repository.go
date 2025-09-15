@@ -928,6 +928,50 @@ func (r *DynamoDBRepository[T]) ExistsByFilters(filters map[string]interface{}, 
 	return count > 0, nil
 }
 
+func (r *DynamoDBRepository[T]) DeleteAll(ids []string, partitionKey string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
+
+	writeRequests := make([]types.WriteRequest, len(ids))
+	for i, id := range ids {
+		sk := id
+		key, err := attributevalue.MarshalMap(map[string]string{
+			"pk": pk,
+			"sk": sk,
+		})
+		if err != nil {
+			return err
+		}
+		writeRequests[i] = types.WriteRequest{
+			DeleteRequest: &types.DeleteRequest{Key: key},
+		}
+	}
+
+	// Batch delete in chunks of 25
+	for i := 0; i < len(writeRequests); i += 25 {
+		end := i + 25
+		if end > len(writeRequests) {
+			end = len(writeRequests)
+		}
+
+		batchWriteInput := &dynamodb.BatchWriteItemInput{
+			RequestItems: map[string][]types.WriteRequest{
+				config.TableName: writeRequests[i:end],
+			},
+		}
+		_, err := r.client.BatchWriteItem(context.TODO(), batchWriteInput)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r *DynamoDBRepository[T]) getPK(entity T) string {
 	val := reflect.ValueOf(entity)
 	if val.Kind() == reflect.Ptr {
