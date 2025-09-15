@@ -107,7 +107,11 @@ func wrapHandler(handler interface{}, service FileService) gin.HandlerFunc {
 		// Send response
 		response := results[0].Interface()
 		if response != nil {
-			ctx.JSON(http.StatusOK, response)
+			if str, ok := response.(string); ok {
+				ctx.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(str))
+			} else {
+				ctx.JSON(http.StatusOK, response)
+			}
 		} else {
 			ctx.Status(http.StatusOK)
 		}
