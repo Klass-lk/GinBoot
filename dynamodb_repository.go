@@ -229,9 +229,6 @@ func (r *DynamoDBRepository[T]) SaveOrUpdate(doc T, partitionKey string) error {
 }
 
 func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	if len(docs) == 0 {
 		return nil
 	}
@@ -288,14 +285,27 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 		}
 	}
 
-	input := &dynamodb.BatchWriteItemInput{
-		RequestItems: map[string][]types.WriteRequest{
-			config.TableName: writeRequests,
-		},
+	// Batch write in chunks of 25
+	for i := 0; i < len(writeRequests); i += 25 {
+		end := i + 25
+		if end > len(writeRequests) {
+			end = len(writeRequests)
+		}
+
+		batchWriteInput := &dynamodb.BatchWriteItemInput{
+			RequestItems: map[string][]types.WriteRequest{
+				config.TableName: writeRequests[i:end],
+			},
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, err := r.client.BatchWriteItem(ctx, batchWriteInput)
+		if err != nil {
+			return err
+		}
 	}
 
-	_, err := r.client.BatchWriteItem(ctx, input)
-	return err
+	return nil
 }
 
 func (r *DynamoDBRepository[T]) Update(doc T, partitionKey string) error {
