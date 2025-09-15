@@ -71,6 +71,15 @@ func TestRouter(t *testing.T) {
 				expectedBody: `{"message":"success"}`,
 			},
 			{
+				name: "string response handler",
+				handler: func() (string, error) {
+					return "plain text response", nil
+				},
+				method:       "GET",
+				expectedCode: http.StatusOK,
+				expectedBody: "plain text response",
+			},
+			{
 				name: "context only handler",
 				handler: func(ctx *Context) (*TestResponse, error) {
 					return &TestResponse{Message: "with context"}, nil
@@ -148,12 +157,16 @@ func TestRouter(t *testing.T) {
 
 				assert.Equal(t, tt.expectedCode, w.Code)
 				if tt.expectedBody != "" {
-					var expected, actual map[string]interface{}
-					err := json.Unmarshal([]byte(tt.expectedBody), &expected)
-					assert.NoError(t, err)
-					err = json.Unmarshal(w.Body.Bytes(), &actual)
-					assert.NoError(t, err)
-					assert.Equal(t, expected, actual)
+					if w.Header().Get("Content-Type") == "text/plain; charset=utf-8" {
+						assert.Equal(t, tt.expectedBody, w.Body.String())
+					} else {
+						var expected, actual map[string]interface{}
+						err := json.Unmarshal([]byte(tt.expectedBody), &expected)
+						assert.NoError(t, err)
+						err = json.Unmarshal(w.Body.Bytes(), &actual)
+						assert.NoError(t, err)
+						assert.Equal(t, expected, actual)
+					}
 				}
 			})
 		}
