@@ -95,41 +95,17 @@ func (r *DynamoDBRepository[T]) findById(pk string, sk string) (DynamoDBItem, er
 }
 
 func (r *DynamoDBRepository[T]) FindById(entityId string, partitionKey string) (T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	var result T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
+	sk := entityId
 
-	// pk is partitionKey, sk is entityId
-	key, err := attributevalue.MarshalMap(map[string]string{
-		"pk": partitionKey,
-		"sk": entityId,
-	})
+	item, err := r.findById(pk, sk)
 	if err != nil {
 		return result, err
 	}
 
-	input := &dynamodb.GetItemInput{
-		TableName: aws.String(config.TableName),
-		Key:       key,
-	}
-
-	output, err := r.client.GetItem(ctx, input)
-	if err != nil {
-		return result, err
-	}
-
-	if output.Item == nil {
-		return result, errors.New("item not found")
-	}
-
-	var dynamoDBItem DynamoDBItem
-	err = attributevalue.UnmarshalMap(output.Item, &dynamoDBItem)
-	if err != nil {
-		return result, err
-	}
-
-	err = json.Unmarshal([]byte(dynamoDBItem.Data), &result)
+	err = json.Unmarshal([]byte(item.Data), &result)
 	return result, err
 }
 
@@ -141,7 +117,8 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 		return []T{}, nil
 	}
 
-	pk := partitionKey // PK is the partitionKey argument
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	keys := make([]map[string]types.AttributeValue, len(ids))
 	for i, id := range ids {
@@ -195,7 +172,7 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 
 	now := time.Now().UnixMilli()
 
-	pk := partitionKey // PK is the partitionKey argument
+	pk := r.getPK(doc) + "#" + partitionKey // Composite PK
 	id, err := r.getGinbootId(doc)
 	if err != nil {
 		return err
@@ -222,7 +199,7 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	newItem := DynamoDBItem{
 		PK:        pk,
 		SK:        sk,
-		ID:        id, // Keep for GSI
+		ID:        id, // Keep for GSI, though may be redundant for some queries now
 		Data:      string(data),
 		CreatedAt: createdAt,
 		UpdatedAt: now,
@@ -259,12 +236,11 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 		return nil
 	}
 
-	pk := partitionKey // PK is the partitionKey argument
-
 	writeRequests := make([]types.WriteRequest, len(docs))
 	for i, doc := range docs {
 		now := time.Now().UnixMilli()
 
+		pk := r.getPK(doc) + "#" + partitionKey // Composite PK
 		id, err := r.getGinbootId(doc)
 		if err != nil {
 			return err
@@ -291,7 +267,7 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 		newItem := DynamoDBItem{
 			PK:        pk,
 			SK:        sk,
-			ID:        id, // Keep for GSI
+			ID:        id,
 			Data:      string(data),
 			CreatedAt: createdAt,
 			UpdatedAt: now,
@@ -330,9 +306,13 @@ func (r *DynamoDBRepository[T]) Delete(id string, partitionKey string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
+	sk := id
+
 	key, err := attributevalue.MarshalMap(map[string]string{
-		"pk": partitionKey,
-		"sk": id,
+		"pk": pk,
+		"sk": sk,
 	})
 	if err != nil {
 		return err
@@ -352,12 +332,14 @@ func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}, parti
 	defer cancel()
 
 	var result T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -398,12 +380,14 @@ func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{},
 	defer cancel()
 
 	var result T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -452,12 +436,14 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -524,12 +510,14 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -601,12 +589,14 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -638,12 +628,14 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -695,12 +687,14 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 	defer cancel()
 
 	var results []T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -768,11 +762,14 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}, partiti
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
+
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
@@ -839,11 +836,14 @@ func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}, p
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
+
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: partitionKey},
+			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
 	}
 
