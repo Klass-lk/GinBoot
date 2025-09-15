@@ -468,3 +468,34 @@ func TestDynamoDBRepository_ExistsByFilters(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, exists)
 }
+
+func TestDynamoDBRepository_DeleteAll(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "test-partition-for-delete"
+	testEntity1 := TestEntity{ID: "del1", Name: "delete_me"}
+	testEntity2 := TestEntity{ID: "del2", Name: "delete_me_too"}
+	testEntity3 := TestEntity{ID: "del3", Name: "keep_me"}
+	err := repo.Save(testEntity1, partitionKey)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity2, partitionKey)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity3, partitionKey)
+	assert.NoError(t, err)
+
+	// Confirm items are there
+	found, err := repo.FindAll(partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, found, 3)
+
+	// Delete a subset
+	err = repo.DeleteAll([]string{"del1", "del2"}, partitionKey)
+	assert.NoError(t, err)
+
+	// Confirm items are gone
+	foundAfterDelete, err := repo.FindAll(partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, foundAfterDelete, 1)
+	assert.Equal(t, "del3", foundAfterDelete[0].ID)
+}
