@@ -17,6 +17,7 @@ import (
 type DynamoDBItem struct {
 	PK        string `dynamodbav:"pk"`
 	SK        string `dynamodbav:"sk"`
+	ID        string `dynamodbav:"id"` // Added for GSI
 	Data      string `dynamodbav:"data"`
 	CreatedAt int64  `dynamodbav:"createdAt"`
 	UpdatedAt int64  `dynamodbav:"updatedAt"`
@@ -61,17 +62,15 @@ func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T
 	return repo
 }
 
-func (r *DynamoDBRepository[T]) findById(id string) (DynamoDBItem, error) {
+func (r *DynamoDBRepository[T]) findById(pk string, sk string) (DynamoDBItem, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var item DynamoDBItem
-	var entity T
-	pk := r.getPK(entity)
 
 	key, err := attributevalue.MarshalMap(map[string]string{
 		"pk": pk,
-		"sk": id,
+		"sk": sk,
 	})
 	if err != nil {
 		return item, err
@@ -95,26 +94,58 @@ func (r *DynamoDBRepository[T]) findById(id string) (DynamoDBItem, error) {
 	return item, err
 }
 
-func (r *DynamoDBRepository[T]) FindById(id string) (T, error) {
+func (r *DynamoDBRepository[T]) FindById(entityId string, partitionKey string) (T, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	var result T
-	item, err := r.findById(id)
+
+	// pk is partitionKey, sk is entityId
+	key, err := attributevalue.MarshalMap(map[string]string{
+		"pk": partitionKey,
+		"sk": entityId,
+	})
 	if err != nil {
 		return result, err
 	}
 
-	err = json.Unmarshal([]byte(item.Data), &result)
+	input := &dynamodb.GetItemInput{
+		TableName: aws.String(config.TableName),
+		Key:       key,
+	}
+
+	output, err := r.client.GetItem(ctx, input)
+	if err != nil {
+		return result, err
+	}
+
+	if output.Item == nil {
+		return result, errors.New("item not found")
+	}
+
+	var dynamoDBItem DynamoDBItem
+	err = attributevalue.UnmarshalMap(output.Item, &dynamoDBItem)
+	if err != nil {
+		return result, err
+	}
+
+	err = json.Unmarshal([]byte(dynamoDBItem.Data), &result)
 	return result, err
 }
 
-func (r *DynamoDBRepository[T]) FindAllById(ids []string) ([]T, error) {
+func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var entity T
-	pk := r.getPK(entity)
+	if len(ids) == 0 {
+		return []T{}, nil
+	}
+
+	pk := partitionKey // PK is the partitionKey argument
 
 	keys := make([]map[string]types.AttributeValue, len(ids))
 	for i, id := range ids {
+		// SK is the id from the list
 		key, err := attributevalue.MarshalMap(map[string]string{
 			"pk": pk,
 			"sk": id,
@@ -128,7 +159,8 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string) ([]T, error) {
 	input := &dynamodb.BatchGetItemInput{
 		RequestItems: map[string]types.KeysAndAttributes{
 			config.TableName: {
-				Keys: keys,
+				Keys:           keys,
+				ConsistentRead: aws.Bool(true),
 			},
 		},
 	}
@@ -140,14 +172,14 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string) ([]T, error) {
 
 	var results []T
 	for _, item := range output.Responses[config.TableName] {
-		var result T
-		var temp DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &temp)
+		var dynamoDBItem DynamoDBItem
+		err = attributevalue.UnmarshalMap(item, &dynamoDBItem)
 		if err != nil {
 			return nil, err
 		}
 
-		err = json.Unmarshal([]byte(temp.Data), &result)
+		var result T
+		err = json.Unmarshal([]byte(dynamoDBItem.Data), &result)
 		if err != nil {
 			return nil, err
 		}
@@ -157,24 +189,25 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string) ([]T, error) {
 	return results, nil
 }
 
-func (r *DynamoDBRepository[T]) Save(doc T) error {
+func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	now := time.Now().UnixMilli()
 
-	pk := r.getPK(doc)
-	sk, err := r.getSK(doc)
+	pk := partitionKey // PK is the partitionKey argument
+	id, err := r.getGinbootId(doc)
 	if err != nil {
 		return err
 	}
+	sk := id // SK is the entity id
 
 	// Get current version and increment it
 	var version int64
 	var createdAt int64
 
 	// Try to find existing item to get version
-	item, err := r.findById(sk)
+	item, err := r.findById(pk, sk)
 	if err == nil {
 		// Item exists, get its version and createdAt
 		version = item.Version
@@ -189,6 +222,7 @@ func (r *DynamoDBRepository[T]) Save(doc T) error {
 	newItem := DynamoDBItem{
 		PK:        pk,
 		SK:        sk,
+		ID:        id, // Keep for GSI
 		Data:      string(data),
 		CreatedAt: createdAt,
 		UpdatedAt: now,
@@ -213,11 +247,11 @@ func (r *DynamoDBRepository[T]) Save(doc T) error {
 	return err
 }
 
-func (r *DynamoDBRepository[T]) SaveOrUpdate(doc T) error {
-	return r.Save(doc)
+func (r *DynamoDBRepository[T]) SaveOrUpdate(doc T, partitionKey string) error {
+	return r.Save(doc, partitionKey)
 }
 
-func (r *DynamoDBRepository[T]) SaveAll(docs []T) error {
+func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -225,30 +259,28 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T) error {
 		return nil
 	}
 
+	pk := partitionKey // PK is the partitionKey argument
+
 	writeRequests := make([]types.WriteRequest, len(docs))
 	for i, doc := range docs {
 		now := time.Now().UnixMilli()
 
-		pk := r.getPK(doc)
-		sk, err := r.getSK(doc)
+		id, err := r.getGinbootId(doc)
 		if err != nil {
 			return err
 		}
+		sk := id // SK is the entity id
 
 		// Get current version and increment it
 		var version int64
 		var createdAt int64
 
 		// Try to find existing item to get version
-		item, err := r.FindById(sk)
+		item, err := r.findById(pk, sk)
 		if err == nil {
 			// Item exists, get its version and createdAt
-			val := reflect.ValueOf(item)
-			if val.Kind() == reflect.Ptr {
-				val = val.Elem()
-			}
-			version = val.FieldByName("Version").Int()
-			createdAt = val.FieldByName("CreatedAt").Int()
+			version = item.Version
+			createdAt = item.CreatedAt
 		}
 
 		data, err := json.Marshal(doc)
@@ -259,6 +291,7 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T) error {
 		newItem := DynamoDBItem{
 			PK:        pk,
 			SK:        sk,
+			ID:        id, // Keep for GSI
 			Data:      string(data),
 			CreatedAt: createdAt,
 			UpdatedAt: now,
@@ -289,19 +322,16 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T) error {
 	return err
 }
 
-func (r *DynamoDBRepository[T]) Update(doc T) error {
-	return r.Save(doc)
+func (r *DynamoDBRepository[T]) Update(doc T, partitionKey string) error {
+	return r.Save(doc, partitionKey)
 }
 
-func (r *DynamoDBRepository[T]) Delete(id string) error {
+func (r *DynamoDBRepository[T]) Delete(id string, partitionKey string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var entity T
-	pk := r.getPK(entity)
-
 	key, err := attributevalue.MarshalMap(map[string]string{
-		"pk": pk,
+		"pk": partitionKey,
 		"sk": id,
 	})
 	if err != nil {
@@ -317,18 +347,17 @@ func (r *DynamoDBRepository[T]) Delete(id string) error {
 	return err
 }
 
-func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}) (T, error) {
+func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}, partitionKey string) (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var result T
-	pk := r.getPK(result)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -364,18 +393,17 @@ func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}) (T, e
 	return result, errors.New("item not found")
 }
 
-func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{}) (T, error) {
+func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{}, partitionKey string) (T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var result T
-	pk := r.getPK(result)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -419,19 +447,17 @@ func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{})
 	return result, errors.New("item not found")
 }
 
-func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}) ([]T, error) {
+func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitionKey string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var results []T
-	var entity T
-	pk := r.getPK(entity)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -459,7 +485,33 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}) ([]T, er
 		}
 
 		fieldValue := val.FieldByName(field).Interface()
-		if fieldValue == value {
+
+		match := true
+		if opMap, ok := value.(map[string]interface{}); ok {
+			// Handle operators like $gte, $lt
+			for op, opValue := range opMap {
+				switch op {
+				case "$gte":
+					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+						match = false
+					}
+				case "$lt":
+					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+						match = false
+					}
+				default:
+					// Unknown operator, treat as no match
+					match = false
+				}
+			}
+		} else {
+			// Direct equality match
+			if !reflect.DeepEqual(fieldValue, value) {
+				match = false
+			}
+		}
+
+		if match {
 			results = append(results, temp)
 		}
 	}
@@ -467,19 +519,17 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}) ([]T, er
 	return results, nil
 }
 
-func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}) ([]T, error) {
+func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, partitionKey string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var results []T
-	var entity T
-	pk := r.getPK(entity)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -507,10 +557,34 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}) ([
 			val = val.Elem()
 		}
 
-		for field, value := range filters {
+		for field, filterValue := range filters {
 			fieldValue := val.FieldByName(field).Interface()
-			if fieldValue != value {
-				match = false
+
+			if opMap, ok := filterValue.(map[string]interface{}); ok {
+				// Handle operators like $gte, $lt
+				for op, opValue := range opMap {
+					switch op {
+					case "$gte":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					case "$lt":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					default:
+						// Unknown operator, treat as no match
+						match = false
+					}
+				}
+			} else {
+				// Direct equality match
+				if !reflect.DeepEqual(fieldValue, filterValue) {
+					match = false
+				}
+			}
+
+			if !match {
 				break
 			}
 		}
@@ -522,19 +596,17 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}) ([
 
 	return results, nil
 }
-func (r *DynamoDBRepository[T]) FindAll(findOpts ...interface{}) ([]T, error) {
+func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var results []T
-	var entity T
-	pk := r.getPK(entity)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -561,19 +633,17 @@ func (r *DynamoDBRepository[T]) FindAll(findOpts ...interface{}) ([]T, error) {
 	return results, nil
 }
 
-func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error) {
+func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partitionKey string) (PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var results []T
-	var entity T
-	pk := r.getPK(entity)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -620,19 +690,17 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageR
 	}, nil
 }
 
-func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error) {
+func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}, partitionKey string) (PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var results []T
-	var entity T
-	pk := r.getPK(entity)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -696,18 +764,15 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 	}, nil
 }
 
-func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}) (int64, error) {
+func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}, partitionKey string) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	var entity T
-	pk := r.getPK(entity)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -736,7 +801,33 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}) (int64,
 		}
 
 		fieldValue := val.FieldByName(field).Interface()
-		if fieldValue == value {
+
+		match := true
+		if opMap, ok := value.(map[string]interface{}); ok {
+			// Handle operators like $gte, $lt
+			for op, opValue := range opMap {
+				switch op {
+				case "$gte":
+					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+						match = false
+					}
+				case "$lt":
+					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+						match = false
+					}
+				default:
+					// Unknown operator, treat as no match
+					match = false
+				}
+			}
+		} else {
+			// Direct equality match
+			if !reflect.DeepEqual(fieldValue, value) {
+				match = false
+			}
+		}
+
+		if match {
 			count++
 		}
 	}
@@ -744,18 +835,15 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}) (int64,
 	return count, nil
 }
 
-func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}) (int64, error) {
+func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}, partitionKey string) (int64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	var entity T
-	pk := r.getPK(entity)
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+			":pk": &types.AttributeValueMemberS{Value: partitionKey},
 		},
 	}
 
@@ -784,10 +872,34 @@ func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}) (
 			val = val.Elem()
 		}
 
-		for field, value := range filters {
+		for field, filterValue := range filters {
 			fieldValue := val.FieldByName(field).Interface()
-			if fieldValue != value {
-				match = false
+
+			if opMap, ok := filterValue.(map[string]interface{}); ok {
+				// Handle operators like $gte, $lt
+				for op, opValue := range opMap {
+					switch op {
+					case "$gte":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					case "$lt":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					default:
+						// Unknown operator, treat as no match
+						match = false
+					}
+				}
+			} else {
+				// Direct equality match
+				if !reflect.DeepEqual(fieldValue, filterValue) {
+					match = false
+				}
+			}
+
+			if !match {
 				break
 			}
 		}
@@ -800,16 +912,16 @@ func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}) (
 	return count, nil
 }
 
-func (r *DynamoDBRepository[T]) ExistsBy(field string, value interface{}) (bool, error) {
-	count, err := r.CountBy(field, value)
+func (r *DynamoDBRepository[T]) ExistsBy(field string, value interface{}, partitionKey string) (bool, error) {
+	count, err := r.CountBy(field, value, partitionKey)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
 }
 
-func (r *DynamoDBRepository[T]) ExistsByFilters(filters map[string]interface{}) (bool, error) {
-	count, err := r.CountByFilters(filters)
+func (r *DynamoDBRepository[T]) ExistsByFilters(filters map[string]interface{}, partitionKey string) (bool, error) {
+	count, err := r.CountByFilters(filters, partitionKey)
 	if err != nil {
 		return false, err
 	}
@@ -824,7 +936,7 @@ func (r *DynamoDBRepository[T]) getPK(entity T) string {
 	return val.Type().Name()
 }
 
-func (r *DynamoDBRepository[T]) getSK(entity T) (string, error) {
+func (r *DynamoDBRepository[T]) getGinbootId(entity T) (string, error) {
 	val := reflect.ValueOf(entity)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
@@ -833,7 +945,7 @@ func (r *DynamoDBRepository[T]) getSK(entity T) (string, error) {
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		if _, ok := field.Tag.Lookup("ginboot"); ok {
+		if tag, ok := field.Tag.Lookup("ginboot"); ok && tag == "id" {
 			return val.Field(i).String(), nil
 		}
 	}
@@ -853,6 +965,10 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 				AttributeName: aws.String("sk"),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
+			{
+				AttributeName: aws.String("id"), // Attribute for GSI
+				AttributeType: types.ScalarAttributeTypeS,
+			},
 		},
 		KeySchema: []types.KeySchemaElement{
 			{
@@ -862,6 +978,24 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 			{
 				AttributeName: aws.String("sk"),
 				KeyType:       types.KeyTypeRange,
+			},
+		},
+		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+			{
+				IndexName: aws.String("EntityIdIndex"),
+				KeySchema: []types.KeySchemaElement{
+					{
+						AttributeName: aws.String("id"),
+						KeyType:       types.KeyTypeHash,
+					},
+				},
+				Projection: &types.Projection{
+					ProjectionType: types.ProjectionTypeAll,
+				},
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(5),
+					WriteCapacityUnits: aws.Int64(5),
+				},
 			},
 		},
 		ProvisionedThroughput: &types.ProvisionedThroughput{
