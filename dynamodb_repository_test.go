@@ -99,11 +99,12 @@ func TestDynamoDBRepository_FindById(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity := TestEntity{ID: "1", Name: "test"}
-	err := repo.Save(testEntity)
+	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
-	foundEntity, err := repo.FindById("1")
+	foundEntity, err := repo.FindById("1", partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, testEntity.ID, foundEntity.ID)
 	assert.Equal(t, testEntity.Name, foundEntity.Name)
@@ -113,14 +114,15 @@ func TestDynamoDBRepository_FindAllById(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity1 := TestEntity{ID: "1", Name: "test1"}
 	testEntity2 := TestEntity{ID: "2", Name: "test2"}
-	err := repo.Save(testEntity1)
+	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
-	err = repo.Save(testEntity2)
+	err = repo.Save(testEntity2, partitionKey)
 	assert.NoError(t, err)
 
-	foundEntities, err := repo.FindAllById([]string{"1", "2"})
+	foundEntities, err := repo.FindAllById([]string{"1", "2"}, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundEntities, 2)
 
@@ -138,18 +140,19 @@ func TestDynamoDBRepository_SaveAll(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntities := []TestEntity{
 		{ID: "3", Name: "test3"},
 		{ID: "4", Name: "test4"},
 	}
-	err := repo.SaveAll(testEntities)
+	err := repo.SaveAll(testEntities, partitionKey)
 	assert.NoError(t, err)
 
-	foundEntity1, err := repo.FindById("3")
+	foundEntity1, err := repo.FindById("3", partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, testEntities[0].Name, foundEntity1.Name)
 
-	foundEntity2, err := repo.FindById("4")
+	foundEntity2, err := repo.FindById("4", partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, testEntities[1].Name, foundEntity2.Name)
 }
@@ -158,15 +161,16 @@ func TestDynamoDBRepository_Update(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity := TestEntity{ID: "1", Name: "initial"}
-	err := repo.Save(testEntity)
+	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
 	updatedEntity := TestEntity{ID: "1", Name: "updated"}
-	err = repo.Update(updatedEntity)
+	err = repo.Update(updatedEntity, partitionKey)
 	assert.NoError(t, err)
 
-	foundUpdatedEntity, err := repo.FindById("1")
+	foundUpdatedEntity, err := repo.FindById("1", partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, updatedEntity.Name, foundUpdatedEntity.Name)
 }
@@ -175,16 +179,17 @@ func TestDynamoDBRepository_FindOneBy(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity := TestEntity{ID: "5", Name: "findOneTest"}
-	err := repo.Save(testEntity)
+	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
-	foundEntity, err := repo.FindOneBy("Name", "findOneTest")
+	foundEntity, err := repo.FindOneBy("Name", "findOneTest", partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, testEntity.ID, foundEntity.ID)
 	assert.Equal(t, testEntity.Name, foundEntity.Name)
 
-	_, err = repo.FindOneBy("Name", "nonExistent")
+	_, err = repo.FindOneBy("Name", "nonExistent", partitionKey)
 	assert.Error(t, err)
 }
 
@@ -192,15 +197,16 @@ func TestDynamoDBRepository_FindOneByFilters(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity := TestEntity{ID: "6", Name: "filterTest", Value: 10}
-	err := repo.Save(testEntity)
+	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
 	filters := map[string]interface{}{
 		"Name":  "filterTest",
 		"Value": 10,
 	}
-	foundEntity, err := repo.FindOneByFilters(filters)
+	foundEntity, err := repo.FindOneByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, testEntity.ID, foundEntity.ID)
 	assert.Equal(t, testEntity.Name, foundEntity.Name)
@@ -210,7 +216,7 @@ func TestDynamoDBRepository_FindOneByFilters(t *testing.T) {
 		"Name":  "filterTest",
 		"Value": 99,
 	}
-	_, err = repo.FindOneByFilters(filters)
+	_, err = repo.FindOneByFilters(filters, partitionKey)
 	assert.Error(t, err)
 }
 
@@ -218,17 +224,18 @@ func TestDynamoDBRepository_FindBy(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity1 := TestEntity{ID: "7", Name: "findByTest", Value: 1}
 	testEntity2 := TestEntity{ID: "8", Name: "findByTest", Value: 2}
 	testEntity3 := TestEntity{ID: "9", Name: "another", Value: 1}
-	err := repo.Save(testEntity1)
+	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
-	err = repo.Save(testEntity2)
+	err = repo.Save(testEntity2, partitionKey)
 	assert.NoError(t, err)
-	err = repo.Save(testEntity3)
+	err = repo.Save(testEntity3, partitionKey)
 	assert.NoError(t, err)
 
-	foundEntities, err := repo.FindBy("Name", "findByTest")
+	foundEntities, err := repo.FindBy("Name", "findByTest", partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundEntities, 2)
 
@@ -246,21 +253,22 @@ func TestDynamoDBRepository_FindByFilters(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity1 := TestEntity{ID: "10", Name: "filterTest1", Value: 100}
 	testEntity2 := TestEntity{ID: "11", Name: "filterTest2", Value: 100}
 	testEntity3 := TestEntity{ID: "12", Name: "filterTest1", Value: 200}
-	err := repo.Save(testEntity1)
+	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
-	err = repo.Save(testEntity2)
+	err = repo.Save(testEntity2, partitionKey)
 	assert.NoError(t, err)
-	err = repo.Save(testEntity3)
+	err = repo.Save(testEntity3, partitionKey)
 	assert.NoError(t, err)
 
 	filters := map[string]interface{}{
 		"Name":  "filterTest1",
 		"Value": 100,
 	}
-	foundEntities, err := repo.FindByFilters(filters)
+	foundEntities, err := repo.FindByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundEntities, 1)
 	assert.Equal(t, testEntity1.ID, foundEntities[0].ID)
@@ -268,7 +276,7 @@ func TestDynamoDBRepository_FindByFilters(t *testing.T) {
 	filters = map[string]interface{}{
 		"Value": 100,
 	}
-	foundEntities, err = repo.FindByFilters(filters)
+	foundEntities, err = repo.FindByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundEntities, 2)
 }
@@ -277,14 +285,15 @@ func TestDynamoDBRepository_FindAll(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	testEntity1 := TestEntity{ID: "13", Name: "all1", Value: 1}
 	testEntity2 := TestEntity{ID: "14", Name: "all2", Value: 2}
-	err := repo.Save(testEntity1)
+	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
-	err = repo.Save(testEntity2)
+	err = repo.Save(testEntity2, partitionKey)
 	assert.NoError(t, err)
 
-	foundEntities, err := repo.FindAll()
+	foundEntities, err := repo.FindAll(partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundEntities, 2)
 
@@ -302,15 +311,16 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	// Save 5 entities for pagination testing
 	for i := 0; i < 5; i++ {
-		err := repo.Save(TestEntity{ID: "paginated" + string(rune('A'+i)), Name: "paginated", Value: i})
+		err := repo.Save(TestEntity{ID: "paginated" + string(rune('A'+i)), Name: "paginated", Value: i}, partitionKey)
 		assert.NoError(t, err)
 	}
 
 	// Test first page
 	pageRequest1 := PageRequest{Page: 1, Size: 2}
-	pageResponse1, err := repo.FindAllPaginated(pageRequest1)
+	pageResponse1, err := repo.FindAllPaginated(pageRequest1, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse1.Contents, 2)
 	assert.Equal(t, 5, pageResponse1.TotalElements)
@@ -318,7 +328,7 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 
 	// Test second page
 	pageRequest2 := PageRequest{Page: 2, Size: 2}
-	pageResponse2, err := repo.FindAllPaginated(pageRequest2)
+	pageResponse2, err := repo.FindAllPaginated(pageRequest2, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse2.Contents, 2)
 	assert.Equal(t, 5, pageResponse2.TotalElements)
@@ -326,7 +336,7 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 
 	// Test last page (with one item)
 	pageRequest3 := PageRequest{Page: 3, Size: 2}
-	pageResponse3, err := repo.FindAllPaginated(pageRequest3)
+	pageResponse3, err := repo.FindAllPaginated(pageRequest3, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse3.Contents, 1)
 	assert.Equal(t, 5, pageResponse3.TotalElements)
@@ -337,11 +347,12 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
+	partitionKey := "test-partition"
 	// Save entities for pagination with filters
-	_ = repo.Save(TestEntity{ID: "fp1", Name: "filtered", Value: 10})
-	_ = repo.Save(TestEntity{ID: "fp2", Name: "filtered", Value: 20})
-	_ = repo.Save(TestEntity{ID: "fp3", Name: "other", Value: 10})
-	_ = repo.Save(TestEntity{ID: "fp4", Name: "filtered", Value: 30})
+	_ = repo.Save(TestEntity{ID: "fp1", Name: "filtered", Value: 10}, partitionKey)
+	_ = repo.Save(TestEntity{ID: "fp2", Name: "filtered", Value: 20}, partitionKey)
+	_ = repo.Save(TestEntity{ID: "fp3", Name: "other", Value: 10}, partitionKey)
+	_ = repo.Save(TestEntity{ID: "fp4", Name: "filtered", Value: 30}, partitionKey)
 
 	filters := map[string]interface{}{
 		"Name": "filtered",
@@ -349,7 +360,7 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 
 	// Test first page with filter
 	pageRequest1 := PageRequest{Page: 1, Size: 2}
-	pageResponse1, err := repo.FindByPaginated(pageRequest1, filters)
+	pageResponse1, err := repo.FindByPaginated(pageRequest1, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse1.Contents, 2)
 	assert.Equal(t, 3, pageResponse1.TotalElements)
@@ -357,7 +368,7 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 
 	// Test second page with filter
 	pageRequest2 := PageRequest{Page: 2, Size: 2}
-	pageResponse2, err := repo.FindByPaginated(pageRequest2, filters)
+	pageResponse2, err := repo.FindByPaginated(pageRequest2, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse2.Contents, 1)
 	assert.Equal(t, 3, pageResponse2.TotalElements)
@@ -368,19 +379,20 @@ func TestDynamoDBRepository_CountBy(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
-	_ = repo.Save(TestEntity{ID: "cb1", Name: "countTest", Value: 1})
-	_ = repo.Save(TestEntity{ID: "cb2", Name: "countTest", Value: 2})
-	_ = repo.Save(TestEntity{ID: "cb3", Name: "another", Value: 1})
+	partitionKey := "test-partition"
+	_ = repo.Save(TestEntity{ID: "cb1", Name: "countTest", Value: 1}, partitionKey)
+	_ = repo.Save(TestEntity{ID: "cb2", Name: "countTest", Value: 2}, partitionKey)
+	_ = repo.Save(TestEntity{ID: "cb3", Name: "another", Value: 1}, partitionKey)
 
-	count, err := repo.CountBy("Name", "countTest")
+	count, err := repo.CountBy("Name", "countTest", partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2), count)
 
-	count, err = repo.CountBy("Value", 1)
+	count, err = repo.CountBy("Value", 1, partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2), count)
 
-	count, err = repo.CountBy("Name", "nonExistent")
+	count, err = repo.CountBy("Name", "nonExistent", partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 }
@@ -389,29 +401,30 @@ func TestDynamoDBRepository_CountByFilters(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
-	_ = repo.Save(TestEntity{ID: "cbf1", Name: "filterCount", Value: 10})
-	_ = repo.Save(TestEntity{ID: "cbf2", Name: "filterCount", Value: 20})
-	_ = repo.Save(TestEntity{ID: "cbf3", Name: "other", Value: 10})
+	partitionKey := "test-partition"
+	_ = repo.Save(TestEntity{ID: "cbf1", Name: "filterCount", Value: 10}, partitionKey)
+	_ = repo.Save(TestEntity{ID: "cbf2", Name: "filterCount", Value: 20}, partitionKey)
+	_ = repo.Save(TestEntity{ID: "cbf3", Name: "other", Value: 10}, partitionKey)
 
 	filters := map[string]interface{}{
 		"Name":  "filterCount",
 		"Value": 10,
 	}
-	count, err := repo.CountByFilters(filters)
+	count, err := repo.CountByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), count)
 
 	filters = map[string]interface{}{
 		"Value": 10,
 	}
-	count, err = repo.CountByFilters(filters)
+	count, err = repo.CountByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2), count)
 
 	filters = map[string]interface{}{
 		"Name": "nonExistent",
 	}
-	count, err = repo.CountByFilters(filters)
+	count, err = repo.CountByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 }
@@ -420,13 +433,14 @@ func TestDynamoDBRepository_ExistsBy(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
-	_ = repo.Save(TestEntity{ID: "eb1", Name: "existsTest", Value: 1})
+	partitionKey := "test-partition"
+	_ = repo.Save(TestEntity{ID: "eb1", Name: "existsTest", Value: 1}, partitionKey)
 
-	exists, err := repo.ExistsBy("Name", "existsTest")
+	exists, err := repo.ExistsBy("Name", "existsTest", partitionKey)
 	assert.NoError(t, err)
 	assert.True(t, exists)
 
-	exists, err = repo.ExistsBy("Name", "nonExistent")
+	exists, err = repo.ExistsBy("Name", "nonExistent", partitionKey)
 	assert.NoError(t, err)
 	assert.False(t, exists)
 }
@@ -435,13 +449,14 @@ func TestDynamoDBRepository_ExistsByFilters(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
 
-	_ = repo.Save(TestEntity{ID: "ebf1", Name: "filterExists", Value: 10})
+	partitionKey := "test-partition"
+	_ = repo.Save(TestEntity{ID: "ebf1", Name: "filterExists", Value: 10}, partitionKey)
 
 	filters := map[string]interface{}{
 		"Name":  "filterExists",
 		"Value": 10,
 	}
-	exists, err := repo.ExistsByFilters(filters)
+	exists, err := repo.ExistsByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.True(t, exists)
 
@@ -449,7 +464,7 @@ func TestDynamoDBRepository_ExistsByFilters(t *testing.T) {
 		"Name":  "filterExists",
 		"Value": 99,
 	}
-	exists, err = repo.ExistsByFilters(filters)
+	exists, err = repo.ExistsByFilters(filters, partitionKey)
 	assert.NoError(t, err)
 	assert.False(t, exists)
 }
