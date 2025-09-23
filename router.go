@@ -39,6 +39,14 @@ func wrapHandler(handler interface{}, service FileService) gin.HandlerFunc {
 	numIn := handlerType.NumIn()
 	numOut := handlerType.NumOut()
 
+	if numOut == 0 {
+		if numIn == 1 {
+			if handlerType.In(0) == reflect.TypeOf(&gin.Context{}) {
+				return handler.(func(ctx *gin.Context))
+			}
+		}
+	}
+
 	if numOut != 2 {
 		panic("handler must return (response, error)")
 	}
