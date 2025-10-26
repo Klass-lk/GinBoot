@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -16,6 +17,7 @@ import (
 	"github.com/cucumber/godog/colors"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type DBSeeder interface {
@@ -248,12 +250,13 @@ func (ts *TestSuite) parseDataTableToJSON(body *godog.Table) ([]byte, error) {
 // Users can use this as a starting point for their own seeders.
 type GenericDBSeeder struct {
 	Constructors map[string]func() interface{}
-	// dbClient interface{} // Your DB client
+	DB           *mongo.Database
 }
 
-func NewGenericDBSeeder() *GenericDBSeeder {
+func NewGenericDBSeeder(db *mongo.Database) *GenericDBSeeder {
 	return &GenericDBSeeder{
 		Constructors: make(map[string]func() interface{}),
+		DB:           db,
 	}
 }
 
@@ -322,8 +325,10 @@ func (gds *GenericDBSeeder) Seed(document string, data *godog.Table) error {
 			}
 		}
 		// Now 'docInstance' is populated. You would typically insert it into your database.
-		// For example: gds.dbClient.Insert(docInstance)
-		fmt.Printf("Seeded %s: %+v\n", document, docInstance)
+		_, err := gds.DB.Collection(document).InsertOne(context.Background(), docInstance)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

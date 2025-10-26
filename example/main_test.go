@@ -18,57 +18,16 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func setupRouter(ctx context.Context) (*gin.Engine, func()) {
-	// Start a MongoDB container
-	mongodbContainer, err := mongodb.RunContainer(ctx, testcontainers.WithImage("mongo:6"))
-	if err != nil {
-		panic(err)
-	}
-
-	// Get the connection string
-	endpoint, err := mongodbContainer.ConnectionString(ctx)
-	if err != nil {
-		panic(err)
-	}
-
-	// Create a new mongo client
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(endpoint))
-	if err != nil {
-		panic(err)
-	}
-
-	// Create a new repository
-	postRepo := repository.NewPostRepository(client.Database("test"))
-
-	// Create a new service
-	postService := service.NewPostService(postRepo)
-
-	// Create a new controller
-	postController := controller.NewPostController(postService)
-
-	// Create a new server
-	server := ginboot.New()
-
-	// Register the controller
-	server.RegisterController("/posts", postController)
-
-	// Return the router and a cleanup function
-	return server.Engine(), func() {
-		if err := mongodbContainer.Terminate(ctx); err != nil {
-			panic(err)
-		}
-	}
-}
-
 func TestFeatures(t *testing.T) {
 	ctx := context.Background()
-	router, cleanup := setupRouter(ctx)
+	db := setupTestDB(ctx)
+	router, cleanup := setupRouter(ctx, db)
 	defer cleanup()
 
 	testSuite := &ginboot.TestSuite{T: t, DbSeeders: make(map[string]ginboot.DBSeeder)}
 
 	// Create a generic seeder
-	seeder := ginboot.NewGenericDBSeeder()
+	seeder := ginboot.NewGenericDBSeeder(db)
 
 	// Register your document types with the seeder
 	seeder.Register("posts", func() interface{} { return &model.Post{} })
@@ -93,4 +52,50 @@ func TestFeatures(t *testing.T) {
 		ScenarioInitializer:  testSuite.InitializeScenario,
 		Options:              &opts,
 	}.Run()
+}
+
+func setupTestDB(ctx context.Context) *mongo.Database {
+	// Start a MongoDB container
+	mongodbContainer, err := mongodb.RunContainer(ctx, testcontainers.WithImage("mongo:6"))
+	if err != nil {
+		panic(err)
+	}
+
+	// Get the connection string
+	endpoint, err := mongodbContainer.ConnectionString(ctx)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create a new mongo client
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(endpoint))
+	if err != nil {
+		panic(err)
+	}
+
+	return client.Database("test")
+}
+
+func setupRouter(ctx context.Context, db *mongo.Database) (*gin.Engine, func()) {
+	// Create a new repository
+	postRepo := repository.NewPostRepository(db)
+
+	// Create a new service
+	postService := service.NewPostService(postRepo)
+
+	// Create a new controller
+	postController := controller.NewPostController(postService)
+
+	// Create a new server
+	server := ginboot.New()
+
+	// Register the controller
+	server.RegisterController("/posts", postController)
+
+	// Return the router and a cleanup function
+	return server.Engine(), func() {
+		if err := db.Client().Disconnect(ctx); err != nil {
+			panic(err)
+		}
+	}
 }
