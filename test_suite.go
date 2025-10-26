@@ -75,10 +75,76 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^document "([^"]*)" has the following items$`, ts.documentHasTheFollowingItems)
 	ctx.Step(`^I send a POST request to "([^"]*)" with body$`, ts.iSendAPOSTRequestToWithBody)
 	ctx.Step(`^I send a GET request to "([^"]*)"$`, ts.iSendAGETRequestTo)
+	ctx.Step(`^I send a PUT request to "([^"]*)" with body$`, ts.iSendAPUTRequestToWithBody)
+	ctx.Step(`^I send a DELETE request to "([^"]*)"$`, ts.iSendADELETERequestTo)
 	ctx.Step(`^the response status should be (\d+)$`, ts.theResponseStatusShouldBe)
 	ctx.Step(`^the response "([^"]*)" field is stored as "([^"]*)"$`, ts.theResponseFieldIsStoredAs)
 	ctx.Step(`^I send an authenticated GET request to "([^"]*)"$`, ts.iSendAnAuthenticatedGETRequestTo)
 	ctx.Step(`^the response should contain an item with$`, ts.theResponseShouldContainAnItemWith)
+}
+
+func (ts *TestSuite) iSendAPUTRequestToWithBody(path string, body *godog.Table) error {
+	var err error
+	ts.RequestBody, err = ts.parseDataTableToJSON(body)
+	if err != nil {
+		return err
+	}
+
+	var req *http.Request
+	if ts.BaseURL != "" {
+		req, err = http.NewRequest("PUT", ts.BaseURL+path, bytes.NewBuffer(ts.RequestBody))
+	} else {
+		req, err = http.NewRequest("PUT", path, bytes.NewBuffer(ts.RequestBody))
+	}
+
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	if ts.BaseURL != "" {
+		client := &http.Client{}
+		ts.Resp, err = client.Do(req)
+	} else {
+		w := httptest.NewRecorder()
+		ts.Router.ServeHTTP(w, req)
+		ts.Resp = w.Result()
+	}
+
+	if err != nil {
+		return err
+	}
+	ts.RespBody, err = ioutil.ReadAll(ts.Resp.Body)
+	return err
+}
+
+func (ts *TestSuite) iSendADELETERequestTo(path string) error {
+	var req *http.Request
+	var err error
+	if ts.BaseURL != "" {
+		req, err = http.NewRequest("DELETE", ts.BaseURL+path, nil)
+	} else {
+		req, err = http.NewRequest("DELETE", path, nil)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if ts.BaseURL != "" {
+		client := &http.Client{}
+		ts.Resp, err = client.Do(req)
+	} else {
+		w := httptest.NewRecorder()
+		ts.Router.ServeHTTP(w, req)
+		ts.Resp = w.Result()
+	}
+
+	if err != nil {
+		return err
+	}
+	ts.RespBody, err = ioutil.ReadAll(ts.Resp.Body)
+	return err
 }
 
 func (ts *TestSuite) documentHasTheFollowingItems(document string, data *godog.Table) error {
