@@ -29,6 +29,11 @@ func (s *PostService) CreatePost(post model.Post) (model.Post, error) {
 }
 
 func (s *PostService) GetPostById(id string) (model.Post, error) {
+	posts, err := s.postRepo.FindAll()
+	if err != nil {
+		return model.Post{}, err
+	}
+	print(posts)
 	return s.postRepo.FindById(id)
 }
 

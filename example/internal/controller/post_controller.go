@@ -4,8 +4,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/klass-lk/ginboot/example/internal/middleware"
-
 	"github.com/klass-lk/ginboot"
 	"github.com/klass-lk/ginboot/example/internal/model"
 	"github.com/klass-lk/ginboot/example/internal/service"
@@ -27,7 +25,7 @@ func (c *PostController) Register(group *ginboot.ControllerGroup) {
 	group.GET("/author/:author", c.GetPostsByAuthor)
 	group.GET("/tags/:tags", c.GetPostsByTags)
 
-	protected := group.Group("", middleware.AuthMiddleware())
+	protected := group.Group("")
 	{
 		protected.POST("", c.CreatePost)
 		protected.PUT("/:id", c.UpdatePost)
