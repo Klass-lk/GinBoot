@@ -25,16 +25,17 @@ type DBSeeder interface {
 }
 
 type TestSuite struct {
-	T           *testing.T
-	Router      *gin.Engine
-	Server      *Server
-	Resp        *http.Response
-	RespBody    []byte
-	Feature     *godog.Feature
-	Storage     map[string]string
-	RequestBody []byte
-	BaseURL     string
-	DbSeeders   map[string]DBSeeder
+	T                  *testing.T
+	Router             *gin.Engine
+	Server             *Server
+	Resp               *http.Response
+	RespBody           []byte
+	Feature            *godog.Feature
+	Storage            map[string]string
+	RequestBody        []byte
+	BaseURL            string
+	DbSeeders          map[string]DBSeeder
+	collectionsToClear []string
 }
 
 type TestLogger struct {
@@ -57,6 +58,15 @@ func (ts *TestSuite) InitializeTestSuite(ctx *godog.TestSuiteContext) {
 
 func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.BeforeScenario(func(sc *godog.Scenario) {
+		for _, collectionName := range ts.collectionsToClear {
+			if seeder, ok := ts.DbSeeders[collectionName].(*GenericDBSeeder); ok {
+				if seeder != nil && seeder.DB != nil {
+					seeder.DB.Collection(collectionName).Drop(context.Background())
+				}
+			}
+		}
+		ts.collectionsToClear = []string{}
+
 		ts.Resp = nil
 		ts.RespBody = nil
 		ts.RequestBody = nil
@@ -76,6 +86,7 @@ func (ts *TestSuite) documentHasTheFollowingItems(document string, data *godog.T
 	if !ok {
 		return fmt.Errorf("no seeder registered for document %s", document)
 	}
+	ts.collectionsToClear = append(ts.collectionsToClear, document)
 	return seeder.Seed(document, data)
 }
 
