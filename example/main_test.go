@@ -27,7 +27,8 @@ func TestFeatures(t *testing.T) {
 	testSuite := &ginboot.TestSuite{T: t, DbSeeders: make(map[string]ginboot.DBSeeder)}
 
 	// Create a generic seeder
-	seeder := ginboot.NewGenericDBSeeder(db)
+	adapter := &ginboot.MongoAdapter{DB: db}
+	seeder := ginboot.NewGenericDBSeeder(adapter)
 
 	// Register your document types with the seeder
 	seeder.Register("posts", func() interface{} { return &model.Post{} })

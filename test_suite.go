@@ -60,8 +60,8 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.BeforeScenario(func(sc *godog.Scenario) {
 		for _, collectionName := range ts.collectionsToClear {
 			if seeder, ok := ts.DbSeeders[collectionName].(*GenericDBSeeder); ok {
-				if seeder != nil && seeder.DB != nil {
-					seeder.DB.Collection(collectionName).Drop(context.Background())
+				if seeder != nil && seeder.Adapter != nil {
+					seeder.Adapter.Clear(collectionName)
 				}
 			}
 		}
@@ -323,17 +323,36 @@ func (ts *TestSuite) parseDataTableToJSON(body *godog.Table) ([]byte, error) {
 	return json.Marshal(data)
 }
 
+type DBAdapter interface {
+	Insert(collection string, doc interface{}) error
+	Clear(collection string) error
+}
+
+// MongoAdapter is a DBAdapter for MongoDB.
+type MongoAdapter struct {
+	DB *mongo.Database
+}
+
+func (a *MongoAdapter) Insert(collection string, doc interface{}) error {
+	_, err := a.DB.Collection(collection).InsertOne(context.Background(), doc)
+	return err
+}
+
+func (a *MongoAdapter) Clear(collection string) error {
+	return a.DB.Collection(collection).Drop(context.Background())
+}
+
 // GenericDBSeeder is a sample DBSeeder that uses reflection to populate structs.
 // Users can use this as a starting point for their own seeders.
 type GenericDBSeeder struct {
 	Constructors map[string]func() interface{}
-	DB           *mongo.Database
+	Adapter      DBAdapter
 }
 
-func NewGenericDBSeeder(db *mongo.Database) *GenericDBSeeder {
+func NewGenericDBSeeder(adapter DBAdapter) *GenericDBSeeder {
 	return &GenericDBSeeder{
 		Constructors: make(map[string]func() interface{}),
-		DB:           db,
+		Adapter:      adapter,
 	}
 }
 
@@ -402,8 +421,7 @@ func (gds *GenericDBSeeder) Seed(document string, data *godog.Table) error {
 			}
 		}
 		// Now 'docInstance' is populated. You would typically insert it into your database.
-		_, err := gds.DB.Collection(document).InsertOne(context.Background(), docInstance)
-		if err != nil {
+		if err := gds.Adapter.Insert(document, docInstance); err != nil {
 			return err
 		}
 	}
