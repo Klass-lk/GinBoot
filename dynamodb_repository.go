@@ -681,7 +681,15 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 		end = totalElements
 	}
 
-	pagedResults := results[start:end]
+	var pagedResults []T
+	if start >= totalElements {
+		pagedResults = []T{}
+	} else {
+		if end > totalElements {
+			end = totalElements
+		}
+		pagedResults = results[start:end]
+	}
 
 	return PageResponse[T]{
 		Contents:         pagedResults,
@@ -750,14 +758,16 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 
 	start := (pageRequest.Page - 1) * pageRequest.Size
 	end := start + pageRequest.Size
-	if start > totalElements {
-		start = totalElements
-	}
-	if end > totalElements {
-		end = totalElements
-	}
 
-	pagedResults := results[start:end]
+	var pagedResults []T
+	if start >= totalElements {
+		pagedResults = []T{}
+	} else {
+		if end > totalElements {
+			end = totalElements
+		}
+		pagedResults = results[start:end]
+	}
 
 	return PageResponse[T]{
 		Contents:         pagedResults,

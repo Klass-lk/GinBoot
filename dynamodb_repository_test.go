@@ -343,6 +343,21 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 	assert.Equal(t, 3, pageResponse3.TotalPages)
 }
 
+func TestDynamoDBRepository_FindAllPaginated_SingleResult(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "test-partition"
+	_ = repo.Save(TestEntity{ID: "single", Name: "filtered", Value: 10}, partitionKey)
+
+	pageRequest := PageRequest{Page: 1, Size: 50}
+	pageResponse, err := repo.FindAllPaginated(pageRequest, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse.Contents, 1)
+	assert.Equal(t, 1, pageResponse.TotalElements)
+	assert.Equal(t, 1, pageResponse.TotalPages)
+}
+
 func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 	repo, teardown := setup(t)
 	defer teardown()
@@ -373,6 +388,25 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 	assert.Len(t, pageResponse2.Contents, 1)
 	assert.Equal(t, 3, pageResponse2.TotalElements)
 	assert.Equal(t, 2, pageResponse2.TotalPages)
+}
+
+func TestDynamoDBRepository_FindByPaginated_SingleResult(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "test-partition"
+	_ = repo.Save(TestEntity{ID: "single", Name: "filtered", Value: 10}, partitionKey)
+
+	filters := map[string]interface{}{
+		"Name": "filtered",
+	}
+
+	pageRequest := PageRequest{Page: 1, Size: 50}
+	pageResponse, err := repo.FindByPaginated(pageRequest, filters, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse.Contents, 1)
+	assert.Equal(t, 1, pageResponse.TotalElements)
+	assert.Equal(t, 1, pageResponse.TotalPages)
 }
 
 func TestDynamoDBRepository_CountBy(t *testing.T) {
