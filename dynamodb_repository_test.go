@@ -341,6 +341,14 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 	assert.Len(t, pageResponse3.Contents, 1)
 	assert.Equal(t, 5, pageResponse3.TotalElements)
 	assert.Equal(t, 3, pageResponse3.TotalPages)
+
+	// Test page size of -1 (all items)
+	pageRequestAll := PageRequest{Page: 1, Size: -1}
+	pageResponseAll, err := repo.FindAllPaginated(pageRequestAll, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponseAll.Contents, 5)
+	assert.Equal(t, 5, pageResponseAll.TotalElements)
+	assert.Equal(t, 1, pageResponseAll.TotalPages)
 }
 
 func TestDynamoDBRepository_FindAllPaginated_SingleResult(t *testing.T) {
@@ -388,6 +396,14 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 	assert.Len(t, pageResponse2.Contents, 1)
 	assert.Equal(t, 3, pageResponse2.TotalElements)
 	assert.Equal(t, 2, pageResponse2.TotalPages)
+
+	// Test page size of -1 (all items)
+	pageRequestAll := PageRequest{Page: 1, Size: -1}
+	pageResponseAll, err := repo.FindByPaginated(pageRequestAll, filters, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponseAll.Contents, 3)
+	assert.Equal(t, 3, pageResponseAll.TotalElements)
+	assert.Equal(t, 1, pageResponseAll.TotalPages)
 }
 
 func TestDynamoDBRepository_FindByPaginated_SingleResult(t *testing.T) {

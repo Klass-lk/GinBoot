@@ -669,6 +669,16 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 		results = append(results, temp)
 	}
 
+	if pageRequest.Size == -1 {
+		return PageResponse[T]{
+			Contents:         results,
+			NumberOfElements: len(results),
+			Pageable:         pageRequest,
+			TotalElements:    len(results),
+			TotalPages:       1,
+		}, nil
+	}
+
 	totalElements := len(results)
 	totalPages := (totalElements + pageRequest.Size - 1) / pageRequest.Size
 
@@ -751,6 +761,16 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 		if match {
 			results = append(results, temp)
 		}
+	}
+
+	if pageRequest.Size == -1 {
+		return PageResponse[T]{
+			Contents:         results,
+			NumberOfElements: len(results),
+			Pageable:         pageRequest,
+			TotalElements:    len(results),
+			TotalPages:       1,
+		}, nil
 	}
 
 	totalElements := len(results)
