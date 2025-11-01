@@ -549,3 +549,53 @@ func TestDynamoDBRepository_DeleteAll(t *testing.T) {
 	assert.Len(t, foundAfterDelete, 1)
 	assert.Equal(t, "del3", foundAfterDelete[0].ID)
 }
+
+func TestDynamoDBRepository_FindAll_SortsByCreatedAt(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "test-partition"
+	testEntity1 := TestEntity{ID: "1", Name: "test1", CreatedAt: 100}
+	testEntity2 := TestEntity{ID: "2", Name: "test2", CreatedAt: 200}
+	testEntity3 := TestEntity{ID: "3", Name: "test3", CreatedAt: 50}
+
+	err := repo.Save(testEntity1, partitionKey)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity2, partitionKey)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity3, partitionKey)
+	assert.NoError(t, err)
+
+	foundEntities, err := repo.FindAll(partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 3)
+
+	assert.Equal(t, "2", foundEntities[0].ID)
+	assert.Equal(t, "1", foundEntities[1].ID)
+	assert.Equal(t, "3", foundEntities[2].ID)
+}
+
+func TestDynamoDBRepository_FindAllById_SortsByCreatedAt(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "test-partition"
+	testEntity1 := TestEntity{ID: "1", Name: "test1", CreatedAt: 100}
+	testEntity2 := TestEntity{ID: "2", Name: "test2", CreatedAt: 200}
+	testEntity3 := TestEntity{ID: "3", Name: "test3", CreatedAt: 50}
+
+	err := repo.Save(testEntity1, partitionKey)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity2, partitionKey)
+	assert.NoError(t, err)
+	err = repo.Save(testEntity3, partitionKey)
+	assert.NoError(t, err)
+
+	foundEntities, err := repo.FindAllById([]string{"1", "2", "3"}, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, foundEntities, 3)
+
+	assert.Equal(t, "2", foundEntities[0].ID)
+	assert.Equal(t, "1", foundEntities[1].ID)
+	assert.Equal(t, "3", foundEntities[2].ID)
+}

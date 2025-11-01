@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"reflect"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -163,6 +164,19 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 		results = append(results, result)
 	}
 
+	// Sort results by createdAt in descending order
+	sort.Slice(results, func(i, j int) bool {
+		createdAtI, err := r.getCreatedAt(results[i])
+		if err != nil {
+			return false
+		}
+		createdAtJ, err := r.getCreatedAt(results[j])
+		if err != nil {
+			return false
+		}
+		return createdAtI > createdAtJ
+	})
+
 	return results, nil
 }
 
@@ -189,6 +203,12 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 		// Item exists, get its version and createdAt
 		version = item.Version
 		createdAt = item.CreatedAt
+	} else {
+		// Item does not exist, get createdAt from doc
+		createdAt, err = r.getCreatedAt(doc)
+		if err != nil {
+			return err
+		}
 	}
 
 	data, err := json.Marshal(doc)
@@ -254,6 +274,12 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 			// Item exists, get its version and createdAt
 			version = item.Version
 			createdAt = item.CreatedAt
+		} else {
+			// Item does not exist, get createdAt from doc
+			createdAt, err = r.getCreatedAt(doc)
+			if err != nil {
+				return err
+			}
 		}
 
 		data, err := json.Marshal(doc)
@@ -451,10 +477,12 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
+		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
+		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
 	output, err := r.client.Query(ctx, input)
@@ -525,10 +553,12 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
+		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
+		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
 	output, err := r.client.Query(ctx, input)
@@ -604,10 +634,12 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
+		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
+		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
 	output, err := r.client.Query(ctx, input)
@@ -1037,6 +1069,28 @@ func (r *DynamoDBRepository[T]) getGinbootId(entity T) (string, error) {
 	return "", errors.New("ginboot:\"id\" tag not found in struct")
 }
 
+const (
+	EntityIdIndex        = "EntityIdIndex"
+	PKCreatedAtSortIndex = "PK-createdAt-sort-index"
+)
+
+func (r *DynamoDBRepository[T]) getCreatedAt(entity T) (int64, error) {
+	val := reflect.ValueOf(entity)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+	typ := val.Type()
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.Name == "CreatedAt" {
+			return val.Field(i).Int(), nil
+		}
+	}
+
+	return 0, errors.New("createdAt field not found in struct")
+}
+
 func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 	input := &dynamodb.CreateTableInput{
 		TableName: aws.String(config.TableName),
@@ -1053,6 +1107,10 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 				AttributeName: aws.String("id"), // Attribute for GSI
 				AttributeType: types.ScalarAttributeTypeS,
 			},
+			{
+				AttributeName: aws.String("createdAt"), // Attribute for GSI
+				AttributeType: types.ScalarAttributeTypeN,
+			},
 		},
 		KeySchema: []types.KeySchemaElement{
 			{
@@ -1066,11 +1124,31 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 		},
 		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
 			{
-				IndexName: aws.String("EntityIdIndex"),
+				IndexName: aws.String(EntityIdIndex),
 				KeySchema: []types.KeySchemaElement{
 					{
 						AttributeName: aws.String("id"),
 						KeyType:       types.KeyTypeHash,
+					},
+				},
+				Projection: &types.Projection{
+					ProjectionType: types.ProjectionTypeAll,
+				},
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(5),
+					WriteCapacityUnits: aws.Int64(5),
+				},
+			},
+			{
+				IndexName: aws.String(PKCreatedAtSortIndex),
+				KeySchema: []types.KeySchemaElement{
+					{
+						AttributeName: aws.String("pk"),
+						KeyType:       types.KeyTypeHash,
+					},
+					{
+						AttributeName: aws.String("createdAt"),
+						KeyType:       types.KeyTypeRange,
 					},
 				},
 				Projection: &types.Projection{
