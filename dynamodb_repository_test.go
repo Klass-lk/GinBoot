@@ -683,3 +683,10 @@ func TestDynamoDBRepository_NoTTL(t *testing.T) {
 
 	assert.Zero(t, item.TTL, "TTL should not be set")
 }
+
+func TestDynamoDBRepository_GetClient(t *testing.T) {
+	repo, _ := setup(t)
+	client := repo.GetClient()
+	assert.NotNil(t, client)
+	assert.Equal(t, testDynamoClient, client)
+}
