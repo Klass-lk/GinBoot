@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
@@ -598,4 +600,86 @@ func TestDynamoDBRepository_FindAllById_SortsByCreatedAt(t *testing.T) {
 	assert.Equal(t, "2", foundEntities[0].ID)
 	assert.Equal(t, "1", foundEntities[1].ID)
 	assert.Equal(t, "3", foundEntities[2].ID)
+}
+
+func TestDynamoDBRepository_TTL(t *testing.T) {
+	_, teardown := setup(t)
+	defer teardown()
+
+	// 1. Create a new repository with TTL
+	ttlRepo := NewDynamoDBRepositoryWithTTL[TestEntity](testDynamoClient, time.Hour)
+
+	// 2. Save an entity
+	partitionKey := "ttl-partition"
+	testEntity := TestEntity{ID: "ttl-1", Name: "ttl-test"}
+	err := ttlRepo.Save(testEntity, partitionKey)
+	assert.NoError(t, err)
+
+	// 3. Get the item directly from DynamoDB
+	pk := "TestEntity#" + partitionKey
+	sk := "ttl-1"
+	key, err := attributevalue.MarshalMap(map[string]string{
+		"pk": pk,
+		"sk": sk,
+	})
+	assert.NoError(t, err)
+
+	getItemInput := &dynamodb.GetItemInput{
+		TableName: aws.String(config.TableName),
+		Key:       key,
+	}
+
+	ctx := context.Background()
+	output, err := testDynamoClient.GetItem(ctx, getItemInput)
+	assert.NoError(t, err)
+	assert.NotNil(t, output.Item)
+
+	// 4. Unmarshal into DynamoDBItem and check TTL
+	var item DynamoDBItem
+	err = attributevalue.UnmarshalMap(output.Item, &item)
+	assert.NoError(t, err)
+
+	assert.NotZero(t, item.TTL, "TTL should be set")
+	assert.True(t, item.TTL > time.Now().Unix(), "TTL should be in the future")
+
+	// Check that it's approximately 1 hour from now
+	expectedTTL := time.Now().Add(time.Hour).Unix()
+	assert.InDelta(t, expectedTTL, item.TTL, 5, "TTL should be approximately 1 hour from now") // 5 seconds delta
+}
+
+func TestDynamoDBRepository_NoTTL(t *testing.T) {
+	repo, teardown := setup(t) // this repo is created without TTL
+	defer teardown()
+
+	// Save an entity
+	partitionKey := "nottl-partition"
+	testEntity := TestEntity{ID: "nottl-1", Name: "nottl-test"}
+	err := repo.Save(testEntity, partitionKey)
+	assert.NoError(t, err)
+
+	// Get the item directly from DynamoDB
+	pk := "TestEntity#" + partitionKey
+	sk := "nottl-1"
+	key, err := attributevalue.MarshalMap(map[string]string{
+		"pk": pk,
+		"sk": sk,
+	})
+	assert.NoError(t, err)
+
+	getItemInput := &dynamodb.GetItemInput{
+		TableName: aws.String(config.TableName),
+		Key:       key,
+	}
+
+	ctx := context.Background()
+	output, err := testDynamoClient.GetItem(ctx, getItemInput)
+	assert.NoError(t, err)
+	assert.NotNil(t, output.Item)
+
+	// Unmarshal into DynamoDBItem and check TTL
+	var item DynamoDBItem
+	err = attributevalue.UnmarshalMap(output.Item, &item)
+	assert.NoError(t, err)
+
+	assert.Zero(t, item.TTL, "TTL should not be set")
 }

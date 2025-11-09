@@ -23,10 +23,12 @@ type DynamoDBItem struct {
 	CreatedAt int64  `dynamodbav:"createdAt"`
 	UpdatedAt int64  `dynamodbav:"updatedAt"`
 	Version   int64  `dynamodbav:"version"`
+	TTL       int64  `dynamodbav:"ttl,omitempty"`
 }
 
 type DynamoDBRepository[T any] struct {
 	client *dynamodb.Client
+	ttl    time.Duration
 }
 
 func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T] {
@@ -58,6 +60,45 @@ func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T
 		} else {
 			log.Fatalf("Failed to describe DynamoDB table %s: %v", config.TableName, err)
 		}
+	}
+
+	return repo
+}
+
+func NewDynamoDBRepositoryWithTTL[T any](client *dynamodb.Client, ttl time.Duration) *DynamoDBRepository[T] {
+	repo := &DynamoDBRepository[T]{
+		client: client,
+		ttl:    ttl,
+	}
+
+	if config.SkipTableCreation {
+		return repo
+	}
+
+	// Check if table exists, if not, create it
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := repo.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(config.TableName),
+	})
+
+	if err != nil {
+		var notFoundEx *types.ResourceNotFoundException
+		if errors.As(err, &notFoundEx) {
+			log.Printf("DynamoDB table %s does not exist, creating it...", config.TableName)
+			err = repo.CreateTable(ctx)
+			if err != nil {
+				log.Fatalf("Failed to create DynamoDB table %s: %v", config.TableName, err)
+			}
+			log.Printf("DynamoDB table %s created successfully.", config.TableName)
+		} else {
+			log.Fatalf("Failed to describe DynamoDB table %s: %v", config.TableName, err)
+		}
+	}
+
+	if repo.ttl > 0 {
+		repo.EnableTTL(ctx)
 	}
 
 	return repo
@@ -226,6 +267,10 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 		Version:   version + 1,
 	}
 
+	if r.ttl > 0 {
+		newItem.TTL = time.Now().Add(r.ttl).Unix()
+	}
+
 	if newItem.CreatedAt == 0 {
 		newItem.CreatedAt = now
 	}
@@ -295,6 +340,10 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 			CreatedAt: createdAt,
 			UpdatedAt: now,
 			Version:   version + 1,
+		}
+
+		if r.ttl > 0 {
+			newItem.TTL = time.Now().Add(r.ttl).Unix()
 		}
 
 		if newItem.CreatedAt == 0 {
@@ -1089,6 +1138,24 @@ func (r *DynamoDBRepository[T]) getCreatedAt(entity T) (int64, error) {
 	}
 
 	return 0, errors.New("createdAt field not found in struct")
+}
+
+func (r *DynamoDBRepository[T]) EnableTTL(ctx context.Context) {
+	log.Printf("Ensuring TTL is enabled on attribute 'ttl' for table %s...", config.TableName)
+	updateTTLInput := &dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(config.TableName),
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String("ttl"),
+			Enabled:       aws.Bool(true),
+		},
+	}
+
+	_, err := r.client.UpdateTimeToLive(ctx, updateTTLInput)
+	if err != nil {
+		log.Printf("Failed to enable TTL for table %s: %v", config.TableName, err)
+	} else {
+		log.Printf("TTL on attribute 'ttl' for table %s is being enabled/is already enabled.", config.TableName)
+	}
 }
 
 func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
