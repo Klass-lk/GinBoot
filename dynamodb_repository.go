@@ -193,14 +193,23 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 		return nil, err
 	}
 
-	var results []T
+	var dynamoDBItems []DynamoDBItem
 	for _, item := range output.Responses[config.TableName] {
 		var dynamoDBItem DynamoDBItem
 		err = attributevalue.UnmarshalMap(item, &dynamoDBItem)
 		if err != nil {
 			return nil, err
 		}
+		dynamoDBItems = append(dynamoDBItems, dynamoDBItem)
+	}
 
+	// Sort results by createdAt in descending order
+	sort.Slice(dynamoDBItems, func(i, j int) bool {
+		return dynamoDBItems[i].CreatedAt > dynamoDBItems[j].CreatedAt
+	})
+
+	var results []T
+	for _, dynamoDBItem := range dynamoDBItems {
 		var result T
 		err = json.Unmarshal([]byte(dynamoDBItem.Data), &result)
 		if err != nil {
@@ -208,19 +217,6 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 		}
 		results = append(results, result)
 	}
-
-	// Sort results by createdAt in descending order
-	sort.Slice(results, func(i, j int) bool {
-		createdAtI, err := r.getCreatedAt(results[i])
-		if err != nil {
-			return false
-		}
-		createdAtJ, err := r.getCreatedAt(results[j])
-		if err != nil {
-			return false
-		}
-		return createdAtI > createdAtJ
-	})
 
 	return results, nil
 }
@@ -248,12 +244,6 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 		// Item exists, get its version and createdAt
 		version = item.Version
 		createdAt = item.CreatedAt
-	} else {
-		// Item does not exist, get createdAt from doc
-		createdAt, err = r.getCreatedAt(doc)
-		if err != nil {
-			return err
-		}
 	}
 
 	data, err := json.Marshal(doc)
@@ -323,12 +313,6 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 			// Item exists, get its version and createdAt
 			version = item.Version
 			createdAt = item.CreatedAt
-		} else {
-			// Item does not exist, get createdAt from doc
-			createdAt, err = r.getCreatedAt(doc)
-			if err != nil {
-				return err
-			}
 		}
 
 		data, err := json.Marshal(doc)
@@ -1126,23 +1110,6 @@ const (
 	EntityIdIndex        = "EntityIdIndex"
 	PKCreatedAtSortIndex = "PK-createdAt-sort-index"
 )
-
-func (r *DynamoDBRepository[T]) getCreatedAt(entity T) (int64, error) {
-	val := reflect.ValueOf(entity)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-	typ := val.Type()
-
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.Name == "CreatedAt" {
-			return val.Field(i).Int(), nil
-		}
-	}
-
-	return 0, errors.New("createdAt field not found in struct")
-}
 
 func (r *DynamoDBRepository[T]) EnableTTL(ctx context.Context) {
 	log.Printf("Ensuring TTL is enabled on attribute 'ttl' for table %s...", config.TableName)
