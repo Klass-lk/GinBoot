@@ -557,21 +557,27 @@ func TestDynamoDBRepository_FindAll_SortsByCreatedAt(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "1", Name: "test1", CreatedAt: 100}
-	testEntity2 := TestEntity{ID: "2", Name: "test2", CreatedAt: 200}
-	testEntity3 := TestEntity{ID: "3", Name: "test3", CreatedAt: 50}
+	testEntity1 := TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := TestEntity{ID: "2", Name: "test2"}
+	testEntity3 := TestEntity{ID: "3", Name: "test3"}
 
-	err := repo.Save(testEntity1, partitionKey)
+	// Save entities with a delay to ensure different creation timestamps
+	err := repo.Save(testEntity3, partitionKey) // oldest
 	assert.NoError(t, err)
-	err = repo.Save(testEntity2, partitionKey)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity1, partitionKey) // middle
 	assert.NoError(t, err)
-	err = repo.Save(testEntity3, partitionKey)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity2, partitionKey) // newest
 	assert.NoError(t, err)
 
 	foundEntities, err := repo.FindAll(partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundEntities, 3)
 
+	// FindAll sorts by createdAt DESC, so newest should be first
 	assert.Equal(t, "2", foundEntities[0].ID)
 	assert.Equal(t, "1", foundEntities[1].ID)
 	assert.Equal(t, "3", foundEntities[2].ID)
@@ -582,21 +588,27 @@ func TestDynamoDBRepository_FindAllById_SortsByCreatedAt(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "1", Name: "test1", CreatedAt: 100}
-	testEntity2 := TestEntity{ID: "2", Name: "test2", CreatedAt: 200}
-	testEntity3 := TestEntity{ID: "3", Name: "test3", CreatedAt: 50}
+	testEntity1 := TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := TestEntity{ID: "2", Name: "test2"}
+	testEntity3 := TestEntity{ID: "3", Name: "test3"}
 
-	err := repo.Save(testEntity1, partitionKey)
+	// Save entities with a delay to ensure different creation timestamps
+	err := repo.Save(testEntity3, partitionKey) // oldest
 	assert.NoError(t, err)
-	err = repo.Save(testEntity2, partitionKey)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity1, partitionKey) // middle
 	assert.NoError(t, err)
-	err = repo.Save(testEntity3, partitionKey)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity2, partitionKey) // newest
 	assert.NoError(t, err)
 
 	foundEntities, err := repo.FindAllById([]string{"1", "2", "3"}, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundEntities, 3)
 
+	// FindAllById sorts by createdAt DESC, so newest should be first
 	assert.Equal(t, "2", foundEntities[0].ID)
 	assert.Equal(t, "1", foundEntities[1].ID)
 	assert.Equal(t, "3", foundEntities[2].ID)
