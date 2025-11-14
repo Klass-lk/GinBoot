@@ -702,3 +702,96 @@ func TestDynamoDBRepository_GetClient(t *testing.T) {
 	assert.NotNil(t, client)
 	assert.Equal(t, testDynamoClient, client)
 }
+
+func TestDynamoDBRepository_FindAllPaginated_SortsByCreatedAt(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "test-partition"
+	testEntity1 := TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := TestEntity{ID: "2", Name: "test2"}
+	testEntity3 := TestEntity{ID: "3", Name: "test3"}
+
+	// Save entities with a delay to ensure different creation timestamps
+	err := repo.Save(testEntity3, partitionKey) // oldest
+	assert.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity1, partitionKey) // middle
+	assert.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity2, partitionKey) // newest
+	assert.NoError(t, err)
+
+	// Page 1, size 2
+	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageResponse1, err := repo.FindAllPaginated(pageRequest1, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse1.Contents, 2)
+	assert.Equal(t, 3, pageResponse1.TotalElements)
+	assert.Equal(t, 2, pageResponse1.TotalPages)
+	assert.Equal(t, "2", pageResponse1.Contents[0].ID) // newest
+	assert.Equal(t, "1", pageResponse1.Contents[1].ID) // middle
+
+	// Page 2, size 2
+	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageResponse2, err := repo.FindAllPaginated(pageRequest2, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse2.Contents, 1)
+	assert.Equal(t, 3, pageResponse2.TotalElements)
+	assert.Equal(t, 2, pageResponse2.TotalPages)
+	assert.Equal(t, "3", pageResponse2.Contents[0].ID) // oldest
+}
+
+func TestDynamoDBRepository_FindByPaginated_SortsByCreatedAt(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "test-partition"
+	// Entities to be filtered
+	testEntity1 := TestEntity{ID: "1", Name: "filtered"}
+	testEntity2 := TestEntity{ID: "2", Name: "filtered"}
+	testEntity3 := TestEntity{ID: "3", Name: "filtered"}
+	// Entity to be ignored
+	testEntity4 := TestEntity{ID: "4", Name: "not-filtered"}
+
+	// Save entities with a delay to ensure different creation timestamps
+	err := repo.Save(testEntity3, partitionKey) // oldest filtered
+	assert.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity4, partitionKey) // ignored
+	assert.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity1, partitionKey) // middle filtered
+	assert.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+
+	err = repo.Save(testEntity2, partitionKey) // newest filtered
+	assert.NoError(t, err)
+
+	filters := map[string]interface{}{
+		"Name": "filtered",
+	}
+
+	// Page 1, size 2
+	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageResponse1, err := repo.FindByPaginated(pageRequest1, filters, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse1.Contents, 2)
+	assert.Equal(t, 3, pageResponse1.TotalElements)
+	assert.Equal(t, 2, pageResponse1.TotalPages)
+	assert.Equal(t, "2", pageResponse1.Contents[0].ID) // newest
+	assert.Equal(t, "1", pageResponse1.Contents[1].ID) // middle
+
+	// Page 2, size 2
+	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageResponse2, err := repo.FindByPaginated(pageRequest2, filters, partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, pageResponse2.Contents, 1)
+	assert.Equal(t, 3, pageResponse2.TotalElements)
+	assert.Equal(t, 2, pageResponse2.TotalPages)
+	assert.Equal(t, "3", pageResponse2.Contents[0].ID) // oldest
+}

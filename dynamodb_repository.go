@@ -712,10 +712,12 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
+		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
+		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
 	output, err := r.client.Query(ctx, input)
@@ -789,10 +791,12 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
+		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
+		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
 	output, err := r.client.Query(ctx, input)
