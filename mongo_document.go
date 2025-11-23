@@ -15,7 +15,7 @@ func getDocumentID(doc interface{}) string {
 	typ := val.Type()
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		if tag := field.Tag.Get("ginboot"); tag == "_id" {
+		if tag := field.Tag.Get("ginboot"); tag == "id" {
 			return val.Field(i).String()
 		}
 	}
