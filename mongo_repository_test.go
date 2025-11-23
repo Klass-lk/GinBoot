@@ -15,7 +15,7 @@ import (
 
 // TestDocument is a sample document for testing
 type TestDocument struct {
-	ID        string    `bson:"_id" ginboot:"_id"`
+	ID        string    `bson:"_id" ginboot:"id"`
 	Name      string    `bson:"name"`
 	Age       int       `bson:"age"`
 	CreatedAt time.Time `bson:"created_at"`
