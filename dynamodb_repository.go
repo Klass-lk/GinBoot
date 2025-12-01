@@ -410,6 +410,7 @@ func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}, parti
 
 	input := &dynamodb.QueryInput{
 		TableName:              aws.String(config.TableName),
+		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
