@@ -67,7 +67,7 @@ func setup(t *testing.T) (*DynamoDBRepository[TestEntity], func()) {
 	ctx := context.Background()
 
 	scanOutput, err := testDynamoClient.Scan(ctx, &dynamodb.ScanInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 	})
 	if err != nil {
 		t.Fatalf("failed to scan table for clearing: %s", err)
@@ -86,7 +86,7 @@ func setup(t *testing.T) (*DynamoDBRepository[TestEntity], func()) {
 
 		_, err = testDynamoClient.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
 			RequestItems: map[string][]types.WriteRequest{
-				config.TableName: writeRequests,
+				dynamoConfig.TableName: writeRequests,
 			},
 		})
 		if err != nil {
@@ -637,7 +637,7 @@ func TestDynamoDBRepository_TTL(t *testing.T) {
 	assert.NoError(t, err)
 
 	getItemInput := &dynamodb.GetItemInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 		Key:       key,
 	}
 
@@ -679,7 +679,7 @@ func TestDynamoDBRepository_NoTTL(t *testing.T) {
 	assert.NoError(t, err)
 
 	getItemInput := &dynamodb.GetItemInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 		Key:       key,
 	}
 
