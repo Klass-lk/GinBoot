@@ -36,7 +36,7 @@ func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T
 		client: client,
 	}
 
-	if config.SkipTableCreation {
+	if dynamoConfig.SkipTableCreation {
 		return repo
 	}
 
@@ -45,20 +45,20 @@ func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T
 	defer cancel()
 
 	_, err := repo.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 	})
 
 	if err != nil {
 		var notFoundEx *types.ResourceNotFoundException
 		if errors.As(err, &notFoundEx) {
-			log.Printf("DynamoDB table %s does not exist, creating it...", config.TableName)
+			log.Printf("DynamoDB table %s does not exist, creating it...", dynamoConfig.TableName)
 			err = repo.CreateTable(ctx)
 			if err != nil {
-				log.Fatalf("Failed to create DynamoDB table %s: %v", config.TableName, err)
+				log.Fatalf("Failed to create DynamoDB table %s: %v", dynamoConfig.TableName, err)
 			}
-			log.Printf("DynamoDB table %s created successfully.", config.TableName)
+			log.Printf("DynamoDB table %s created successfully.", dynamoConfig.TableName)
 		} else {
-			log.Fatalf("Failed to describe DynamoDB table %s: %v", config.TableName, err)
+			log.Fatalf("Failed to describe DynamoDB table %s: %v", dynamoConfig.TableName, err)
 		}
 	}
 
@@ -71,7 +71,7 @@ func NewDynamoDBRepositoryWithTTL[T any](client *dynamodb.Client, ttl time.Durat
 		ttl:    ttl,
 	}
 
-	if config.SkipTableCreation {
+	if dynamoConfig.SkipTableCreation {
 		return repo
 	}
 
@@ -80,20 +80,20 @@ func NewDynamoDBRepositoryWithTTL[T any](client *dynamodb.Client, ttl time.Durat
 	defer cancel()
 
 	_, err := repo.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 	})
 
 	if err != nil {
 		var notFoundEx *types.ResourceNotFoundException
 		if errors.As(err, &notFoundEx) {
-			log.Printf("DynamoDB table %s does not exist, creating it...", config.TableName)
+			log.Printf("DynamoDB table %s does not exist, creating it...", dynamoConfig.TableName)
 			err = repo.CreateTable(ctx)
 			if err != nil {
-				log.Fatalf("Failed to create DynamoDB table %s: %v", config.TableName, err)
+				log.Fatalf("Failed to create DynamoDB table %s: %v", dynamoConfig.TableName, err)
 			}
-			log.Printf("DynamoDB table %s created successfully.", config.TableName)
+			log.Printf("DynamoDB table %s created successfully.", dynamoConfig.TableName)
 		} else {
-			log.Fatalf("Failed to describe DynamoDB table %s: %v", config.TableName, err)
+			log.Fatalf("Failed to describe DynamoDB table %s: %v", dynamoConfig.TableName, err)
 		}
 	}
 
@@ -123,7 +123,7 @@ func (r *DynamoDBRepository[T]) findById(pk string, sk string) (DynamoDBItem, er
 	}
 
 	input := &dynamodb.GetItemInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 		Key:       key,
 	}
 
@@ -181,7 +181,7 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 
 	input := &dynamodb.BatchGetItemInput{
 		RequestItems: map[string]types.KeysAndAttributes{
-			config.TableName: {
+			dynamoConfig.TableName: {
 				Keys:           keys,
 				ConsistentRead: aws.Bool(true),
 			},
@@ -194,7 +194,7 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 	}
 
 	var dynamoDBItems []DynamoDBItem
-	for _, item := range output.Responses[config.TableName] {
+	for _, item := range output.Responses[dynamoConfig.TableName] {
 		var dynamoDBItem DynamoDBItem
 		err = attributevalue.UnmarshalMap(item, &dynamoDBItem)
 		if err != nil {
@@ -275,7 +275,7 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	}
 
 	input := &dynamodb.PutItemInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 		Item:      av,
 	}
 
@@ -357,7 +357,7 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 
 		batchWriteInput := &dynamodb.BatchWriteItemInput{
 			RequestItems: map[string][]types.WriteRequest{
-				config.TableName: writeRequests[i:end],
+				dynamoConfig.TableName: writeRequests[i:end],
 			},
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -392,7 +392,7 @@ func (r *DynamoDBRepository[T]) Delete(id string, partitionKey string) error {
 	}
 
 	input := &dynamodb.DeleteItemInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 		Key:       key,
 	}
 
@@ -409,7 +409,7 @@ func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}, parti
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -458,7 +458,7 @@ func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{},
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
@@ -514,7 +514,7 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -590,7 +590,7 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -671,7 +671,7 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -712,7 +712,7 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -791,7 +791,7 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		IndexName:              aws.String(PKCreatedAtSortIndex),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -880,7 +880,7 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}, partiti
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
@@ -954,7 +954,7 @@ func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}, p
 	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
 	input := &dynamodb.QueryInput{
-		TableName:              aws.String(config.TableName),
+		TableName:              aws.String(dynamoConfig.TableName),
 		KeyConditionExpression: aws.String("pk = :pk"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
@@ -1074,7 +1074,7 @@ func (r *DynamoDBRepository[T]) DeleteAll(ids []string, partitionKey string) err
 
 		batchWriteInput := &dynamodb.BatchWriteItemInput{
 			RequestItems: map[string][]types.WriteRequest{
-				config.TableName: writeRequests[i:end],
+				dynamoConfig.TableName: writeRequests[i:end],
 			},
 		}
 		_, err := r.client.BatchWriteItem(context.TODO(), batchWriteInput)
@@ -1117,9 +1117,9 @@ const (
 )
 
 func (r *DynamoDBRepository[T]) EnableTTL(ctx context.Context) {
-	log.Printf("Ensuring TTL is enabled on attribute 'ttl' for table %s...", config.TableName)
+	log.Printf("Ensuring TTL is enabled on attribute 'ttl' for table %s...", dynamoConfig.TableName)
 	updateTTLInput := &dynamodb.UpdateTimeToLiveInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 		TimeToLiveSpecification: &types.TimeToLiveSpecification{
 			AttributeName: aws.String("ttl"),
 			Enabled:       aws.Bool(true),
@@ -1128,15 +1128,15 @@ func (r *DynamoDBRepository[T]) EnableTTL(ctx context.Context) {
 
 	_, err := r.client.UpdateTimeToLive(ctx, updateTTLInput)
 	if err != nil {
-		log.Printf("Failed to enable TTL for table %s: %v", config.TableName, err)
+		log.Printf("Failed to enable TTL for table %s: %v", dynamoConfig.TableName, err)
 	} else {
-		log.Printf("TTL on attribute 'ttl' for table %s is being enabled/is already enabled.", config.TableName)
+		log.Printf("TTL on attribute 'ttl' for table %s is being enabled/is already enabled.", dynamoConfig.TableName)
 	}
 }
 
 func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 	input := &dynamodb.CreateTableInput{
-		TableName: aws.String(config.TableName),
+		TableName: aws.String(dynamoConfig.TableName),
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
 				AttributeName: aws.String("pk"),

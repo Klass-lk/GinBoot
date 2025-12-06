@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -45,7 +46,7 @@ func main() {
 
 	server.RegisterController("/posts", postController)
 
-	fileService := ginboot.NewS3FileService("example-bucket", "./local", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "us-east-1", "3600")
+	fileService := ginboot.NewS3FileService(context.Background(), "example-bucket", "./local", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "us-east-1", "3600")
 	server.BindFileService(fileService)
 
 	if err := server.Start(8080); err != nil {

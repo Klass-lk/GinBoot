@@ -3,8 +3,8 @@ package ginboot
 import "sync"
 
 var (
-	once   sync.Once
-	config *DynamoDBConfig
+	once         sync.Once
+	dynamoConfig *DynamoDBConfig
 )
 
 type DynamoDBConfig struct {
@@ -14,9 +14,9 @@ type DynamoDBConfig struct {
 
 func NewDynamoDBConfig() *DynamoDBConfig {
 	once.Do(func() {
-		config = &DynamoDBConfig{}
+		dynamoConfig = &DynamoDBConfig{}
 	})
-	return config
+	return dynamoConfig
 }
 
 func (c *DynamoDBConfig) WithTableName(name string) *DynamoDBConfig {
