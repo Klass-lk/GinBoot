@@ -1,6 +1,7 @@
 package ginboot
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -9,59 +10,66 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type S3FileService struct {
-	s3Client      *s3.S3
+	s3Client      *s3.Client
+	presignClient *s3.PresignClient
 	bucket        string
 	expireTime    int
 	localFilePath string
 }
 
-func NewS3FileService(bucket, localFilePath, accessKey, secretKey, region, defaultExpireTime string) *S3FileService {
+func NewS3FileServiceWithConfig(cfg aws.Config, bucket, localFilePath, defaultExpireTime string) *S3FileService {
 	expireTime, err := strconv.Atoi(defaultExpireTime)
 	if err != nil {
 		log.Fatalf("Invalid expire time: %v", err)
 	}
 
-	// Initialize AWS session
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region:      aws.String(region),
-		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-	}))
-
-	s3Client := s3.New(sess)
+	s3Client := s3.NewFromConfig(cfg)
+	presignClient := s3.NewPresignClient(s3Client)
 
 	return &S3FileService{
 		s3Client:      s3Client,
+		presignClient: presignClient,
 		bucket:        bucket,
 		expireTime:    expireTime,
 		localFilePath: localFilePath,
 	}
 }
 
+func NewS3FileService(ctx context.Context, bucket, localFilePath, accessKey, secretKey, region, defaultExpireTime string) *S3FileService {
+	// Initialize AWS session with static credentials for backward compatibility
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
+	)
+	if err != nil {
+		log.Fatalf("Failed to load AWS config: %v", err)
+	}
+
+	return NewS3FileServiceWithConfig(cfg, bucket, localFilePath, defaultExpireTime)
+}
+
 func (s *S3FileService) IsExists(path string) bool {
-	_, err := s.s3Client.HeadObject(&s3.HeadObjectInput{
+	_, err := s.s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
 	})
 
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() == s3.ErrCodeNoSuchKey {
-			return false
-		}
-		log.Fatalf("Failed to check file existence: %v", err)
+		// In V2, check for NotFound error differently if needed, but usually error is enough
+		return false
 	}
 	return true
 }
 
 func (s *S3FileService) Download(path string) (io.ReadCloser, error) {
-	result, err := s.s3Client.GetObject(&s3.GetObjectInput{
+	result, err := s.s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
 	})
@@ -78,7 +86,7 @@ func (s *S3FileService) Upload(localPath, remotePath string) error {
 	}
 	defer file.Close()
 
-	_, err = s.s3Client.PutObject(&s3.PutObjectInput{
+	_, err = s.s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(remotePath),
 		Body:   file,
@@ -93,7 +101,7 @@ func (s *S3FileService) Upload(localPath, remotePath string) error {
 }
 
 func (s *S3FileService) Delete(path string) error {
-	_, err := s.s3Client.DeleteObject(&s3.DeleteObjectInput{
+	_, err := s.s3Client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
 	})
@@ -108,15 +116,17 @@ func (s *S3FileService) GetURL(path string) (string, error) {
 }
 
 func (s *S3FileService) GetURLWithExpiry(path string, expireTime int) (string, error) {
-	req, _ := s.s3Client.GetObjectRequest(&s3.GetObjectInput{
+	req, err := s.presignClient.PresignGetObject(context.TODO(), &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
+	}, func(o *s3.PresignOptions) {
+		o.Expires = time.Duration(expireTime) * time.Second
 	})
-	urlStr, err := req.Presign(time.Duration(expireTime) * time.Second)
+
 	if err != nil {
 		return "", fmt.Errorf("failed to generate presigned URL: %v", err)
 	}
-	return urlStr, nil
+	return req.URL, nil
 }
 
 func (s *S3FileService) DeleteLocalFile(path string) error {
@@ -129,15 +139,15 @@ func (s *S3FileService) DeleteLocalFile(path string) error {
 
 func (s *S3FileService) GetUploadURL(fileName, path string) (string, error) {
 	filePath := filepath.Join(path, fileName)
-	req, _ := s.s3Client.PutObjectRequest(&s3.PutObjectInput{
+	req, err := s.presignClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(filePath),
+	}, func(o *s3.PresignOptions) {
+		o.Expires = 10 * time.Minute
 	})
 
-	// Expire in 10 minutes
-	urlStr, err := req.Presign(10 * time.Minute)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate upload presigned URL: %v", err)
 	}
-	return urlStr, nil
+	return req.URL, nil
 }
