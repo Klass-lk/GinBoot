@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -794,4 +795,45 @@ func TestDynamoDBRepository_FindByPaginated_SortsByCreatedAt(t *testing.T) {
 	assert.Equal(t, 3, pageResponse2.TotalElements)
 	assert.Equal(t, 2, pageResponse2.TotalPages)
 	assert.Equal(t, "3", pageResponse2.Contents[0].ID) // oldest
+}
+
+func TestDynamoDBRepository_FindAllPaginated_LargeDataset(t *testing.T) {
+	repo, teardown := setup(t)
+	defer teardown()
+
+	partitionKey := "large-dataset-partition"
+
+	// Create a large payload to trigger 1MB limit quickly
+	// 1000 bytes per item
+	largePayload := make([]byte, 1000)
+	for i := range largePayload {
+		largePayload[i] = 'a'
+	}
+	payloadStr := string(largePayload)
+
+	// 1500 items * ~1KB > 1MB limit
+	numItems := 1500
+	var entities []TestEntity
+	for i := 0; i < numItems; i++ {
+		entities = append(entities, TestEntity{
+			ID:   fmt.Sprintf("large-%d", i),
+			Name: payloadStr,
+		})
+	}
+
+	// Save using SaveAll for efficiency
+	err := repo.SaveAll(entities, partitionKey)
+	assert.NoError(t, err)
+
+	// Test FindAll (should fetch all 1500 items)
+	foundAll, err := repo.FindAll(partitionKey)
+	assert.NoError(t, err)
+	assert.Len(t, foundAll, numItems, "FindAll should return all items despite 1MB limit")
+
+	// Test FindAllPaginated (Size -1)
+	pageRequestAll := PageRequest{Page: 1, Size: -1}
+	pageResponseAll, err := repo.FindAllPaginated(pageRequestAll, partitionKey)
+	assert.NoError(t, err)
+	assert.Equal(t, numItems, pageResponseAll.TotalElements, "FindAllPaginated should return correct total elements")
+	assert.Len(t, pageResponseAll.Contents, numItems)
 }
