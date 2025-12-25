@@ -58,12 +58,14 @@ func CacheMiddleware(service CacheService, duration time.Duration, tagGen TagGen
 		cachedData, err := service.Get(c.Request.Context(), key)
 		if err == nil && cachedData != nil {
 			// Cache hit
+			c.Header("X-Cache", "HIT")
 			c.Data(http.StatusOK, "application/json; charset=utf-8", cachedData)
 			c.Abort()
 			return
 		}
 
 		// 2. Cache miss, capture response
+		c.Header("X-Cache", "MISS")
 		writer := &cacheWriter{
 			ResponseWriter: c.Writer,
 			body:           &bytes.Buffer{},

@@ -47,7 +47,10 @@ func (c *PostController) CreatePost(request model.Post) (model.Post, error) {
 	post, err := c.postService.CreatePost(request)
 	if err == nil {
 		// Invalidate "posts" tag on creation
-		_ = c.cacheService.Invalidate(context.Background(), "posts")
+		err = c.cacheService.Invalidate(context.Background(), "posts")
+		if err != nil {
+			return model.Post{}, err
+		}
 	}
 	return post, err
 }
@@ -84,10 +87,15 @@ func (c *PostController) GetPosts(ctx *ginboot.Context) (ginboot.PageResponse[mo
 	sortField := ctx.DefaultQuery("sort", "created_at")
 	sortDir, _ := strconv.Atoi(ctx.DefaultQuery("direction", "-1"))
 
-	return c.postService.GetPosts(page, size, ginboot.SortField{
+	res, err := c.postService.GetPosts(page, size, ginboot.SortField{
 		Field:     sortField,
 		Direction: sortDir,
 	})
+
+	if err != nil {
+		return ginboot.PageResponse[model.Post]{}, err
+	}
+	return res, nil
 }
 
 func (c *PostController) GetPostsByAuthor(ctx *ginboot.Context) (ginboot.PageResponse[model.Post], error) {

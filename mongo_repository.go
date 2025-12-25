@@ -21,7 +21,7 @@ func NewMongoRepository[T interface{}](db *mongo.Database, collectionName string
 }
 
 func (r *MongoRepository[T]) FindById(id string) (T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	var result T
@@ -33,7 +33,7 @@ func (r *MongoRepository[T]) FindById(id string) (T, error) {
 }
 
 func (r *MongoRepository[T]) FindAllById(ids []string) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	filter := bson.M{"_id": bson.M{"$in": ids}}
 	cursor, err := r.collection.Find(ctx, filter)
@@ -49,14 +49,14 @@ func (r *MongoRepository[T]) FindAllById(ids []string) ([]T, error) {
 }
 
 func (r *MongoRepository[T]) Save(doc T) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := r.collection.InsertOne(ctx, doc)
 	return err
 }
 
 func (r *MongoRepository[T]) SaveOrUpdate(doc T) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": getDocumentID(doc)}, doc, options.Replace().SetUpsert(true))
 	return err
@@ -66,7 +66,7 @@ func (r *MongoRepository[T]) SaveAll(docs []T) error {
 	if len(docs) == 0 {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var operations []mongo.WriteModel
 	for _, doc := range docs {
@@ -78,21 +78,21 @@ func (r *MongoRepository[T]) SaveAll(docs []T) error {
 }
 
 func (r *MongoRepository[T]) Update(doc T) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := r.collection.ReplaceOne(ctx, bson.M{"_id": getDocumentID(doc)}, doc)
 	return err
 }
 
 func (r *MongoRepository[T]) Delete(id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
 	return err
 }
 
 func (r *MongoRepository[T]) FindOneBy(field string, value interface{}) (T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	var result T
@@ -104,7 +104,7 @@ func (r *MongoRepository[T]) FindOneBy(field string, value interface{}) (T, erro
 }
 
 func (r *MongoRepository[T]) FindOneByFilters(filters map[string]interface{}) (T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	var result T
@@ -116,7 +116,7 @@ func (r *MongoRepository[T]) FindOneByFilters(filters map[string]interface{}) (T
 }
 
 func (r *MongoRepository[T]) FindBy(field string, value interface{}) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	cursor, err := r.collection.Find(ctx, bson.M{field: value})
@@ -133,7 +133,7 @@ func (r *MongoRepository[T]) FindBy(field string, value interface{}) ([]T, error
 }
 
 func (r *MongoRepository[T]) FindByFilters(filters map[string]interface{}) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	cursor, err := r.collection.Find(ctx, filters)
@@ -150,7 +150,7 @@ func (r *MongoRepository[T]) FindByFilters(filters map[string]interface{}) ([]T,
 }
 
 func (r *MongoRepository[T]) FindAll(findOpts ...interface{}) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	var mongoFindOpts []*options.FindOptions
@@ -174,7 +174,7 @@ func (r *MongoRepository[T]) FindAll(findOpts ...interface{}) ([]T, error) {
 }
 
 func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	skip := int64((pageRequest.Page - 1) * pageRequest.Size)
@@ -220,7 +220,7 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResp
 }
 
 func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	skip := int64((pageRequest.Page - 1) * pageRequest.Size)
@@ -266,13 +266,13 @@ func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters ma
 }
 
 func (r *MongoRepository[T]) CountBy(field string, value interface{}) (int64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return r.collection.CountDocuments(ctx, bson.M{field: value})
 }
 
 func (r *MongoRepository[T]) CountByFilters(filters map[string]interface{}) (int64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return r.collection.CountDocuments(ctx, filters)
 }
@@ -288,7 +288,7 @@ func (r *MongoRepository[T]) ExistsByFilters(filters map[string]interface{}) (bo
 }
 
 func (r *MongoRepository[T]) DeleteAll(options ...interface{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	_, err := r.collection.DeleteMany(ctx, bson.M{})
@@ -296,14 +296,14 @@ func (r *MongoRepository[T]) DeleteAll(options ...interface{}) error {
 }
 
 func (r *MongoRepository[T]) DeleteBy(field string, value interface{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := r.collection.DeleteMany(ctx, bson.M{field: value})
 	return err
 }
 
 func (r *MongoRepository[T]) DeleteByFilters(filters map[string]interface{}) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := r.collection.DeleteMany(ctx, filters)
 	return err

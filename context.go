@@ -101,6 +101,7 @@ func (c *Context) SendError(err error) {
 		return
 	}
 	// Handle other types of errors here
+	// DEBUG: Including error message to trace cause
 	c.JSON(http.StatusInternalServerError, gin.H{
 		"error_code": "Internal Server Error",
 		"message":    "An unknown error occurred",
