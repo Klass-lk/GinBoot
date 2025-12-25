@@ -1,29 +1,39 @@
 package controller
 
 import (
+	"context"
 	"strconv"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
 	"github.com/klass-lk/ginboot/example/internal/model"
 	"github.com/klass-lk/ginboot/example/internal/service"
 )
 
 type PostController struct {
-	postService *service.PostService
+	postService     *service.PostService
+	cacheService    ginboot.CacheService
+	cacheMiddleware gin.HandlerFunc
 }
 
-func NewPostController(postService *service.PostService) *PostController {
+func NewPostController(postService *service.PostService, cacheService ginboot.CacheService, cacheMiddleware gin.HandlerFunc) *PostController {
 	return &PostController{
-		postService: postService,
+		postService:     postService,
+		cacheService:    cacheService,
+		cacheMiddleware: cacheMiddleware,
 	}
 }
 
 func (c *PostController) Register(group *ginboot.ControllerGroup) {
-	group.GET("", c.GetPosts)
-	group.GET("/:id", c.GetPost)
-	group.GET("/author/:author", c.GetPostsByAuthor)
-	group.GET("/tags/:tags", c.GetPostsByTags)
+	// Apply cache middleware to list endpoints
+	// We can generate tags in middleware using the TagGenerator,
+	// or we can rely on Default Key Generation and manual invalidation.
+	// For this example, let's assume middleware generates keys/tags.
+	group.GET("", c.GetPosts, c.cacheMiddleware)
+	group.GET("/:id", c.GetPost, c.cacheMiddleware)
+	group.GET("/author/:author", c.GetPostsByAuthor, c.cacheMiddleware)
+	group.GET("/tags/:tags", c.GetPostsByTags, c.cacheMiddleware)
 
 	protected := group.Group("")
 	{
@@ -34,7 +44,15 @@ func (c *PostController) Register(group *ginboot.ControllerGroup) {
 }
 
 func (c *PostController) CreatePost(request model.Post) (model.Post, error) {
-	return c.postService.CreatePost(request)
+	post, err := c.postService.CreatePost(request)
+	if err == nil {
+		// Invalidate "posts" tag on creation
+		err = c.cacheService.Invalidate(context.Background(), "posts")
+		if err != nil {
+			return model.Post{}, err
+		}
+	}
+	return post, err
 }
 
 func (c *PostController) GetPost(ctx *ginboot.Context) (model.Post, error) {
@@ -44,7 +62,13 @@ func (c *PostController) GetPost(ctx *ginboot.Context) (model.Post, error) {
 
 func (c *PostController) UpdatePost(ctx *ginboot.Context, post model.Post) (model.Post, error) {
 	id := ctx.Param("id")
-	return post, c.postService.UpdatePost(id, post)
+	err := c.postService.UpdatePost(id, post)
+	if err == nil {
+		// Invalidate general list and specific item if tagged
+		// For simplicity, invalidate global "posts" tag
+		_ = c.cacheService.Invalidate(context.Background(), "posts")
+	}
+	return post, err
 }
 
 func (c *PostController) DeletePost(ctx *ginboot.Context) (ginboot.EmptyResponse, error) {
@@ -53,6 +77,7 @@ func (c *PostController) DeletePost(ctx *ginboot.Context) (ginboot.EmptyResponse
 	if err != nil {
 		return ginboot.EmptyResponse{}, err
 	}
+	_ = c.cacheService.Invalidate(context.Background(), "posts")
 	return ginboot.EmptyResponse{}, nil
 }
 
@@ -62,10 +87,15 @@ func (c *PostController) GetPosts(ctx *ginboot.Context) (ginboot.PageResponse[mo
 	sortField := ctx.DefaultQuery("sort", "created_at")
 	sortDir, _ := strconv.Atoi(ctx.DefaultQuery("direction", "-1"))
 
-	return c.postService.GetPosts(page, size, ginboot.SortField{
+	res, err := c.postService.GetPosts(page, size, ginboot.SortField{
 		Field:     sortField,
 		Direction: sortDir,
 	})
+
+	if err != nil {
+		return ginboot.PageResponse[model.Post]{}, err
+	}
+	return res, nil
 }
 
 func (c *PostController) GetPostsByAuthor(ctx *ginboot.Context) (ginboot.PageResponse[model.Post], error) {

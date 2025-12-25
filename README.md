@@ -80,6 +80,7 @@ For more detailed information on Ginboot's features and usage, refer to the foll
 *   [Database Support](docs/database.md)
 *   [Deployment to AWS Lambda using SAM](docs/deployment.md)
 *   [Testing](docs/testing.md)
+*   [Caching Support](docs/caching.md)
 
 ## Contributing
 Contributions are welcome! Please read our contributing guidelines for more details.

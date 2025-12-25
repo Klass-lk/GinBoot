@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
 	"github.com/klass-lk/ginboot/example/internal/controller"
 	"github.com/klass-lk/ginboot/example/internal/repository"
@@ -15,11 +16,11 @@ import (
 
 func main() {
 	// Initialize MongoDB client
-	client, err := mongo.Connect(nil, options.Client().ApplyURI("mongodb://localhost:27017"))
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI("mongodb://localhost:27017"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Disconnect(nil)
+	defer client.Disconnect(context.TODO())
 
 	// Initialize repositories
 	postRepo := repository.NewPostRepository(client.Database("example"))
@@ -41,10 +42,24 @@ func main() {
 		24*time.Hour, // Max age of preflight requests
 	)
 
+	// Initialize Cache Service (Mongo)
+	cacheRepo := ginboot.NewMongoRepository[ginboot.CacheEntry](client.Database("example"), "cache_entries")
+	cacheService := ginboot.NewMongoCacheService(cacheRepo)
+
+	// Tag Generator: Tag all requests to /posts as "posts"
+	// In a real app, this would be more sophisticated (e.g. tagging by ID)
+	tagGen := func(c *gin.Context) []string {
+		return []string{"posts"}
+	}
+
+	cacheMiddleware := ginboot.CacheMiddleware(cacheService, time.Minute, tagGen, nil) // nil keyGen use default
+
 	// Initialize and register controllers
-	postController := controller.NewPostController(postService)
+	postController := controller.NewPostController(postService, cacheService, cacheMiddleware)
+	cacheController := controller.NewCacheController(cacheService)
 
 	server.RegisterController("/posts", postController)
+	server.RegisterController("/cache", cacheController)
 
 	fileService := ginboot.NewS3FileService(context.Background(), "example-bucket", "./local", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "us-east-1", "3600")
 	server.BindFileService(fileService)

@@ -2,10 +2,11 @@ package ginboot
 
 import (
 	"errors"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type AuthContext struct {
@@ -100,9 +101,9 @@ func (c *Context) SendError(err error) {
 		return
 	}
 	// Handle other types of errors here
+	// DEBUG: Including error message to trace cause
 	c.JSON(http.StatusInternalServerError, gin.H{
 		"error_code": "Internal Server Error",
 		"message":    "An unknown error occurred",
 	})
-	return
 }

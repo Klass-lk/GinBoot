@@ -310,14 +310,31 @@ func (r *SQLRepository[T]) DeleteAll(options ...interface{}) error {
 	return err
 }
 
+func (r *SQLRepository[T]) DeleteBy(field string, value interface{}) error {
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", r.tableName, field)
+	_, err := r.db.Exec(query, value)
+	return err
+}
+
+func (r *SQLRepository[T]) DeleteByFilters(filters map[string]interface{}) error {
+	conditions, values := r.buildWhereClause(filters)
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s", r.tableName, conditions)
+	_, err := r.db.Exec(query, values...)
+	return err
+}
+
 func (r *SQLRepository[T]) scanRow(row *sql.Row, dest *T) error {
 	val := reflect.ValueOf(dest).Elem() // Get the value that dest points to
 	typ := val.Type()
 
 	// Create a slice of interface{} to hold pointers to the fields
-	scanArgs := make([]interface{}, typ.NumField())
+	scanArgs := make([]interface{}, 0, typ.NumField())
 	for i := 0; i < typ.NumField(); i++ {
-		scanArgs[i] = val.Field(i).Addr().Interface()
+		field := typ.Field(i)
+		if field.Tag.Get("db") == "-" {
+			continue
+		}
+		scanArgs = append(scanArgs, val.Field(i).Addr().Interface())
 	}
 
 	return row.Scan(scanArgs...)
@@ -328,9 +345,13 @@ func (r *SQLRepository[T]) scanSingleRow(rows *sql.Rows, dest *T) error {
 	typ := val.Type()
 
 	// Create a slice of interface{} to hold pointers to the fields
-	scanArgs := make([]interface{}, typ.NumField())
+	scanArgs := make([]interface{}, 0, typ.NumField())
 	for i := 0; i < typ.NumField(); i++ {
-		scanArgs[i] = val.Field(i).Addr().Interface()
+		field := typ.Field(i)
+		if field.Tag.Get("db") == "-" {
+			continue
+		}
+		scanArgs = append(scanArgs, val.Field(i).Addr().Interface())
 	}
 
 	return rows.Scan(scanArgs...)
@@ -357,6 +378,9 @@ func (r *SQLRepository[T]) extractFieldsAndValues(doc T) ([]string, []interface{
 	for i := 0; i < v.NumField(); i++ {
 		field := t.Field(i)
 		tag := field.Tag.Get("db")
+		if tag == "-" {
+			continue
+		}
 		if tag == "" {
 			tag = strings.ToLower(field.Name)
 		}
@@ -388,6 +412,9 @@ func (r *SQLRepository[T]) CreateTable() error {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		columnName := field.Tag.Get("db")
+		if columnName == "-" {
+			continue
+		}
 		if columnName == "" {
 			columnName = strings.ToLower(field.Name)
 		}
