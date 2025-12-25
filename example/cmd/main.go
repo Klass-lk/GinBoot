@@ -16,11 +16,11 @@ import (
 
 func main() {
 	// Initialize MongoDB client
-	client, err := mongo.Connect(nil, options.Client().ApplyURI("mongodb://localhost:27017"))
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI("mongodb://localhost:27017"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Disconnect(nil)
+	defer client.Disconnect(context.TODO())
 
 	// Initialize repositories
 	postRepo := repository.NewPostRepository(client.Database("example"))
