@@ -417,33 +417,40 @@ func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}, parti
 		},
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return result, err
-	}
-
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return result, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return result, err
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return result, err
+			}
+
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return result, err
+			}
+
+			val := reflect.ValueOf(temp)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+
+			fieldValue := val.FieldByName(field).Interface()
+			if fieldValue == value {
+				return temp, nil
+			}
 		}
 
-		val := reflect.ValueOf(temp)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
+		if output.LastEvaluatedKey == nil {
+			break
 		}
-
-		fieldValue := val.FieldByName(field).Interface()
-		if fieldValue == value {
-			return temp, nil
-		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	return result, errors.New("item not found")
@@ -465,41 +472,48 @@ func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{},
 		},
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return result, err
-	}
-
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return result, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return result, err
-		}
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return result, err
+			}
 
-		match := true
-		val := reflect.ValueOf(temp)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return result, err
+			}
 
-		for field, value := range filters {
-			fieldValue := val.FieldByName(field).Interface()
-			if fieldValue != value {
-				match = false
-				break
+			match := true
+			val := reflect.ValueOf(temp)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+
+			for field, value := range filters {
+				fieldValue := val.FieldByName(field).Interface()
+				if fieldValue != value {
+					match = false
+					break
+				}
+			}
+
+			if match {
+				return temp, nil
 			}
 		}
 
-		if match {
-			return temp, nil
+		if output.LastEvaluatedKey == nil {
+			break
 		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	return result, errors.New("item not found")
@@ -523,59 +537,66 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return nil, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return nil, err
-		}
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return nil, err
+			}
 
-		val := reflect.ValueOf(temp)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return nil, err
+			}
 
-		fieldValue := val.FieldByName(field).Interface()
+			val := reflect.ValueOf(temp)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
 
-		match := true
-		if opMap, ok := value.(map[string]interface{}); ok {
-			// Handle operators like $gte, $lt
-			for op, opValue := range opMap {
-				switch op {
-				case "$gte":
-					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+			fieldValue := val.FieldByName(field).Interface()
+
+			match := true
+			if opMap, ok := value.(map[string]interface{}); ok {
+				// Handle operators like $gte, $lt
+				for op, opValue := range opMap {
+					switch op {
+					case "$gte":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					case "$lt":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					default:
+						// Unknown operator, treat as no match
 						match = false
 					}
-				case "$lt":
-					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-						match = false
-					}
-				default:
-					// Unknown operator, treat as no match
+				}
+			} else {
+				// Direct equality match
+				if !reflect.DeepEqual(fieldValue, value) {
 					match = false
 				}
 			}
-		} else {
-			// Direct equality match
-			if !reflect.DeepEqual(fieldValue, value) {
-				match = false
+
+			if match {
+				results = append(results, temp)
 			}
 		}
 
-		if match {
-			results = append(results, temp)
+		if output.LastEvaluatedKey == nil {
+			break
 		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	return results, nil
@@ -599,65 +620,72 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return nil, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return nil, err
-		}
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return nil, err
+			}
 
-		match := true
-		val := reflect.ValueOf(temp)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return nil, err
+			}
 
-		for field, filterValue := range filters {
-			fieldValue := val.FieldByName(field).Interface()
+			match := true
+			val := reflect.ValueOf(temp)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
 
-			if opMap, ok := filterValue.(map[string]interface{}); ok {
-				// Handle operators like $gte, $lt
-				for op, opValue := range opMap {
-					switch op {
-					case "$gte":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+			for field, filterValue := range filters {
+				fieldValue := val.FieldByName(field).Interface()
+
+				if opMap, ok := filterValue.(map[string]interface{}); ok {
+					// Handle operators like $gte, $lt
+					for op, opValue := range opMap {
+						switch op {
+						case "$gte":
+							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+								match = false
+							}
+						case "$lt":
+							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+								match = false
+							}
+						default:
+							// Unknown operator, treat as no match
 							match = false
 						}
-					case "$lt":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-							match = false
-						}
-					default:
-						// Unknown operator, treat as no match
+					}
+				} else {
+					// Direct equality match
+					if !reflect.DeepEqual(fieldValue, filterValue) {
 						match = false
 					}
 				}
-			} else {
-				// Direct equality match
-				if !reflect.DeepEqual(fieldValue, filterValue) {
-					match = false
+
+				if !match {
+					break
 				}
 			}
 
-			if !match {
-				break
+			if match {
+				results = append(results, temp)
 			}
 		}
 
-		if match {
-			results = append(results, temp)
+		if output.LastEvaluatedKey == nil {
+			break
 		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	return results, nil
@@ -680,24 +708,31 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return nil, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return nil, err
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return nil, err
+			}
+
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, temp)
 		}
-		results = append(results, temp)
+
+		if output.LastEvaluatedKey == nil {
+			break
+		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	return results, nil
@@ -721,24 +756,31 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return PageResponse[T]{}, err
-	}
-
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return PageResponse[T]{}, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return PageResponse[T]{}, err
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return PageResponse[T]{}, err
+			}
+
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return PageResponse[T]{}, err
+			}
+			results = append(results, temp)
 		}
-		results = append(results, temp)
+
+		if output.LastEvaluatedKey == nil {
+			break
+		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	if pageRequest.Size == -1 {
@@ -800,41 +842,48 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return PageResponse[T]{}, err
-	}
-
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return PageResponse[T]{}, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return PageResponse[T]{}, err
-		}
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return PageResponse[T]{}, err
+			}
 
-		match := true
-		val := reflect.ValueOf(temp)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return PageResponse[T]{}, err
+			}
 
-		for field, value := range filters {
-			fieldValue := val.FieldByName(field).Interface()
-			if fieldValue != value {
-				match = false
-				break
+			match := true
+			val := reflect.ValueOf(temp)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+
+			for field, value := range filters {
+				fieldValue := val.FieldByName(field).Interface()
+				if fieldValue != value {
+					match = false
+					break
+				}
+			}
+
+			if match {
+				results = append(results, temp)
 			}
 		}
 
-		if match {
-			results = append(results, temp)
+		if output.LastEvaluatedKey == nil {
+			break
 		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	if pageRequest.Size == -1 {
@@ -887,60 +936,67 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}, partiti
 		},
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return 0, err
-	}
-
 	var count int64
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return 0, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return 0, err
-		}
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return 0, err
+			}
 
-		val := reflect.ValueOf(temp)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return 0, err
+			}
 
-		fieldValue := val.FieldByName(field).Interface()
+			val := reflect.ValueOf(temp)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
 
-		match := true
-		if opMap, ok := value.(map[string]interface{}); ok {
-			// Handle operators like $gte, $lt
-			for op, opValue := range opMap {
-				switch op {
-				case "$gte":
-					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+			fieldValue := val.FieldByName(field).Interface()
+
+			match := true
+			if opMap, ok := value.(map[string]interface{}); ok {
+				// Handle operators like $gte, $lt
+				for op, opValue := range opMap {
+					switch op {
+					case "$gte":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					case "$lt":
+						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+							match = false
+						}
+					default:
+						// Unknown operator, treat as no match
 						match = false
 					}
-				case "$lt":
-					if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-						match = false
-					}
-				default:
-					// Unknown operator, treat as no match
+				}
+			} else {
+				// Direct equality match
+				if !reflect.DeepEqual(fieldValue, value) {
 					match = false
 				}
 			}
-		} else {
-			// Direct equality match
-			if !reflect.DeepEqual(fieldValue, value) {
-				match = false
+
+			if match {
+				count++
 			}
 		}
 
-		if match {
-			count++
+		if output.LastEvaluatedKey == nil {
+			break
 		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	return count, nil
@@ -961,66 +1017,73 @@ func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}, p
 		},
 	}
 
-	output, err := r.client.Query(ctx, input)
-	if err != nil {
-		return 0, err
-	}
-
 	var count int64
-	for _, item := range output.Items {
-		var temp T
-		var tempItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &tempItem)
+	for {
+		output, err := r.client.Query(ctx, input)
 		if err != nil {
 			return 0, err
 		}
 
-		err = json.Unmarshal([]byte(tempItem.Data), &temp)
-		if err != nil {
-			return 0, err
-		}
+		for _, item := range output.Items {
+			var temp T
+			var tempItem DynamoDBItem
+			err = attributevalue.UnmarshalMap(item, &tempItem)
+			if err != nil {
+				return 0, err
+			}
 
-		match := true
-		val := reflect.ValueOf(temp)
-		if val.Kind() == reflect.Ptr {
-			val = val.Elem()
-		}
+			err = json.Unmarshal([]byte(tempItem.Data), &temp)
+			if err != nil {
+				return 0, err
+			}
 
-		for field, filterValue := range filters {
-			fieldValue := val.FieldByName(field).Interface()
+			match := true
+			val := reflect.ValueOf(temp)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
 
-			if opMap, ok := filterValue.(map[string]interface{}); ok {
-				// Handle operators like $gte, $lt
-				for op, opValue := range opMap {
-					switch op {
-					case "$gte":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+			for field, filterValue := range filters {
+				fieldValue := val.FieldByName(field).Interface()
+
+				if opMap, ok := filterValue.(map[string]interface{}); ok {
+					// Handle operators like $gte, $lt
+					for op, opValue := range opMap {
+						switch op {
+						case "$gte":
+							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
+								match = false
+							}
+						case "$lt":
+							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
+								match = false
+							}
+						default:
+							// Unknown operator, treat as no match
 							match = false
 						}
-					case "$lt":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-							match = false
-						}
-					default:
-						// Unknown operator, treat as no match
+					}
+				} else {
+					// Direct equality match
+					if !reflect.DeepEqual(fieldValue, filterValue) {
 						match = false
 					}
 				}
-			} else {
-				// Direct equality match
-				if !reflect.DeepEqual(fieldValue, filterValue) {
-					match = false
+
+				if !match {
+					break
 				}
 			}
 
-			if !match {
-				break
+			if match {
+				count++
 			}
 		}
 
-		if match {
-			count++
+		if output.LastEvaluatedKey == nil {
+			break
 		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
 	}
 
 	return count, nil
