@@ -310,6 +310,19 @@ func (r *SQLRepository[T]) DeleteAll(options ...interface{}) error {
 	return err
 }
 
+func (r *SQLRepository[T]) DeleteBy(field string, value interface{}) error {
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", r.tableName, field)
+	_, err := r.db.Exec(query, value)
+	return err
+}
+
+func (r *SQLRepository[T]) DeleteByFilters(filters map[string]interface{}) error {
+	conditions, values := r.buildWhereClause(filters)
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s", r.tableName, conditions)
+	_, err := r.db.Exec(query, values...)
+	return err
+}
+
 func (r *SQLRepository[T]) scanRow(row *sql.Row, dest *T) error {
 	val := reflect.ValueOf(dest).Elem() // Get the value that dest points to
 	typ := val.Type()

@@ -295,6 +295,20 @@ func (r *MongoRepository[T]) DeleteAll(options ...interface{}) error {
 	return err
 }
 
+func (r *MongoRepository[T]) DeleteBy(field string, value interface{}) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := r.collection.DeleteMany(ctx, bson.M{field: value})
+	return err
+}
+
+func (r *MongoRepository[T]) DeleteByFilters(filters map[string]interface{}) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := r.collection.DeleteMany(ctx, filters)
+	return err
+}
+
 func (r *MongoRepository[T]) Query() *mongo.Collection {
 	return r.collection
 }

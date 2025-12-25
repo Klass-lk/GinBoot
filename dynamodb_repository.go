@@ -26,12 +26,27 @@ type DynamoDBItem struct {
 	TTL       int64  `dynamodbav:"ttl,omitempty"`
 }
 
+// DynamoDBAPI defines the interface for DynamoDB operations
+type DynamoDBAPI interface {
+	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+	DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
+	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+	Scan(ctx context.Context, params *dynamodb.ScanInput, optFns ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
+	BatchWriteItem(ctx context.Context, params *dynamodb.BatchWriteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
+	BatchGetItem(ctx context.Context, params *dynamodb.BatchGetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error)
+	UpdateTimeToLive(ctx context.Context, params *dynamodb.UpdateTimeToLiveInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateTimeToLiveOutput, error)
+	CreateTable(ctx context.Context, params *dynamodb.CreateTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error)
+	DescribeTable(ctx context.Context, params *dynamodb.DescribeTableInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DescribeTableOutput, error)
+	TransactWriteItems(ctx context.Context, params *dynamodb.TransactWriteItemsInput, optFns ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
+}
+
 type DynamoDBRepository[T any] struct {
-	client *dynamodb.Client
+	client DynamoDBAPI
 	ttl    time.Duration
 }
 
-func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T] {
+func NewDynamoDBRepository[T any](client DynamoDBAPI) *DynamoDBRepository[T] {
 	repo := &DynamoDBRepository[T]{
 		client: client,
 	}
@@ -65,7 +80,7 @@ func NewDynamoDBRepository[T any](client *dynamodb.Client) *DynamoDBRepository[T
 	return repo
 }
 
-func NewDynamoDBRepositoryWithTTL[T any](client *dynamodb.Client, ttl time.Duration) *DynamoDBRepository[T] {
+func NewDynamoDBRepositoryWithTTL[T any](client DynamoDBAPI, ttl time.Duration) *DynamoDBRepository[T] {
 	repo := &DynamoDBRepository[T]{
 		client: client,
 		ttl:    ttl,
@@ -104,7 +119,7 @@ func NewDynamoDBRepositoryWithTTL[T any](client *dynamodb.Client, ttl time.Durat
 	return repo
 }
 
-func (r *DynamoDBRepository[T]) GetClient() *dynamodb.Client {
+func (r *DynamoDBRepository[T]) GetClient() DynamoDBAPI {
 	return r.client
 }
 
@@ -1147,6 +1162,50 @@ func (r *DynamoDBRepository[T]) DeleteAll(ids []string, partitionKey string) err
 	}
 
 	return nil
+}
+
+func (r *DynamoDBRepository[T]) DeleteBy(field string, value interface{}, partitionKey string) error {
+	items, err := r.FindBy(field, value, partitionKey)
+	if err != nil {
+		return err
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	ids := make([]string, len(items))
+	for i, item := range items {
+		id, err := r.getGinbootId(item)
+		if err != nil {
+			return err
+		}
+		ids[i] = id
+	}
+
+	return r.DeleteAll(ids, partitionKey)
+}
+
+func (r *DynamoDBRepository[T]) DeleteByFilters(filters map[string]interface{}, partitionKey string) error {
+	items, err := r.FindByFilters(filters, partitionKey)
+	if err != nil {
+		return err
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	ids := make([]string, len(items))
+	for i, item := range items {
+		id, err := r.getGinbootId(item)
+		if err != nil {
+			return err
+		}
+		ids[i] = id
+	}
+
+	return r.DeleteAll(ids, partitionKey)
 }
 
 func (r *DynamoDBRepository[T]) getPK(entity T) string {
