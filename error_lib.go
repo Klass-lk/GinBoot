@@ -3,8 +3,9 @@ package ginboot
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type ApiError struct {
@@ -48,5 +49,4 @@ func SendError(c *gin.Context, err error) {
 		"error_code": "Internal Server Error",
 		"message":    "An unknown error occurred",
 	})
-	return
 }
