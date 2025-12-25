@@ -156,7 +156,7 @@ func (r *DynamoDBRepository[T]) FindById(entityId string, partitionKey string) (
 }
 
 func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	if len(ids) == 0 {
@@ -520,7 +520,7 @@ func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{},
 }
 
 func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitionKey string) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	var results []T
@@ -603,7 +603,7 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 }
 
 func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, partitionKey string) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	var results []T
@@ -691,7 +691,7 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 	return results, nil
 }
 func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	var results []T
@@ -739,7 +739,7 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 }
 
 func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partitionKey string) (PageResponse[T], error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	var results []T
@@ -825,7 +825,7 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 }
 
 func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}, partitionKey string) (PageResponse[T], error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	var results []T
