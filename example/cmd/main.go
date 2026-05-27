@@ -11,6 +11,7 @@ import (
 	"github.com/klass-lk/ginboot/example/internal/controller"
 	"github.com/klass-lk/ginboot/example/internal/model"
 	"github.com/klass-lk/ginboot/example/internal/service"
+	"github.com/klass-lk/ginboot/storage/s3"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -60,7 +61,7 @@ func main() {
 
 	server.RegisterController("/posts", postController)
 
-	fileService := ginboot.NewS3FileService(context.Background(), "example-bucket", "./local", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "us-east-1", "3600")
+	fileService := s3.NewS3FileService(context.Background(), "example-bucket", "./local", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "us-east-1", "3600")
 	server.BindFileService(fileService)
 
 	if err := server.Start(8080); err != nil {

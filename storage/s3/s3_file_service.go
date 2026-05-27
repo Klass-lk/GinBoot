@@ -1,4 +1,4 @@
-package ginboot
+package s3
 
 import (
 	"context"
@@ -13,16 +13,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/klass-lk/ginboot"
 )
 
 type S3FileService struct {
-	s3Client      *s3.Client
-	presignClient *s3.PresignClient
+	s3Client      *awss3.Client
+	presignClient *awss3.PresignClient
 	bucket        string
 	expireTime    int
 	localFilePath string
 }
+
+var _ ginboot.FileService = (*S3FileService)(nil)
 
 func NewS3FileServiceWithConfig(cfg aws.Config, bucket, localFilePath, defaultExpireTime string) *S3FileService {
 	expireTime, err := strconv.Atoi(defaultExpireTime)
@@ -30,8 +33,8 @@ func NewS3FileServiceWithConfig(cfg aws.Config, bucket, localFilePath, defaultEx
 		log.Fatalf("Invalid expire time: %v", err)
 	}
 
-	s3Client := s3.NewFromConfig(cfg)
-	presignClient := s3.NewPresignClient(s3Client)
+	s3Client := awss3.NewFromConfig(cfg)
+	presignClient := awss3.NewPresignClient(s3Client)
 
 	return &S3FileService{
 		s3Client:      s3Client,
@@ -43,7 +46,6 @@ func NewS3FileServiceWithConfig(cfg aws.Config, bucket, localFilePath, defaultEx
 }
 
 func NewS3FileService(ctx context.Context, bucket, localFilePath, accessKey, secretKey, region, defaultExpireTime string) *S3FileService {
-	// Initialize AWS session with static credentials for backward compatibility
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
@@ -56,20 +58,16 @@ func NewS3FileService(ctx context.Context, bucket, localFilePath, accessKey, sec
 }
 
 func (s *S3FileService) IsExists(path string) bool {
-	_, err := s.s3Client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+	_, err := s.s3Client.HeadObject(context.TODO(), &awss3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
 	})
 
-	if err != nil {
-		// In V2, check for NotFound error differently if needed, but usually error is enough
-		return false
-	}
-	return true
+	return err == nil
 }
 
 func (s *S3FileService) Download(path string) (io.ReadCloser, error) {
-	result, err := s.s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
+	result, err := s.s3Client.GetObject(context.TODO(), &awss3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
 	})
@@ -86,7 +84,7 @@ func (s *S3FileService) Upload(localPath, remotePath string) error {
 	}
 	defer file.Close()
 
-	_, err = s.s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+	_, err = s.s3Client.PutObject(context.TODO(), &awss3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(remotePath),
 		Body:   file,
@@ -101,7 +99,7 @@ func (s *S3FileService) Upload(localPath, remotePath string) error {
 }
 
 func (s *S3FileService) Delete(path string) error {
-	_, err := s.s3Client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+	_, err := s.s3Client.DeleteObject(context.TODO(), &awss3.DeleteObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
 	})
@@ -116,10 +114,10 @@ func (s *S3FileService) GetURL(path string) (string, error) {
 }
 
 func (s *S3FileService) GetURLWithExpiry(path string, expireTime int) (string, error) {
-	req, err := s.presignClient.PresignGetObject(context.TODO(), &s3.GetObjectInput{
+	req, err := s.presignClient.PresignGetObject(context.TODO(), &awss3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(path),
-	}, func(o *s3.PresignOptions) {
+	}, func(o *awss3.PresignOptions) {
 		o.Expires = time.Duration(expireTime) * time.Second
 	})
 
@@ -139,10 +137,10 @@ func (s *S3FileService) DeleteLocalFile(path string) error {
 
 func (s *S3FileService) GetUploadURL(fileName, path string) (string, error) {
 	filePath := filepath.Join(path, fileName)
-	req, err := s.presignClient.PresignPutObject(context.TODO(), &s3.PutObjectInput{
+	req, err := s.presignClient.PresignPutObject(context.TODO(), &awss3.PutObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(filePath),
-	}, func(o *s3.PresignOptions) {
+	}, func(o *awss3.PresignOptions) {
 		o.Expires = 10 * time.Minute
 	})
 
