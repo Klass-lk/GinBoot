@@ -36,6 +36,8 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'skip ci')"
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +60,17 @@ jobs:
           default_prerelease_bump: patch
           release_branches: main
           tag_prefix: v
+
+      - name: Tag and push submodules
+        if: steps.tag_version.outputs.new_tag != ''
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          NEW_TAG="${{ steps.tag_version.outputs.new_tag }}"
+          git tag "db/mongo/$NEW_TAG"
+          git tag "db/sql/$NEW_TAG"
+          git tag "db/dynamodb/$NEW_TAG"
+          git push origin "db/mongo/$NEW_TAG" "db/sql/$NEW_TAG" "db/dynamodb/$NEW_TAG"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
