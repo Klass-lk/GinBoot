@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.22']
+        go-version: ['1.25.0']
 
     services:
       mongodb:
