@@ -1,42 +1,26 @@
 package ginboot
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-lambda-go/lambda"
-	ginadapter "github.com/awslabs/aws-lambda-go-api-proxy/gin"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
-type Runtime string
-
-const (
-	RuntimeLambda Runtime = "lambda"
-	RuntimeHTTP   Runtime = "http"
-)
+type Runner func(engine *gin.Engine) error
 
 type Server struct {
 	engine      *gin.Engine
-	runtime     Runtime
+	runner      Runner
 	corsConfig  *cors.Config
 	basePath    string
 	fileService FileService
 }
 
 func New() *Server {
-	runtime := RuntimeHTTP
-	if os.Getenv("LAMBDA_TASK_ROOT") != "" {
-		runtime = RuntimeLambda
-	}
-
 	return &Server{
-		engine:  gin.Default(),
-		runtime: runtime,
+		engine: gin.Default(),
 	}
 }
 
@@ -45,8 +29,8 @@ func (s *Server) Engine() *gin.Engine {
 }
 
 func (s *Server) Start(port int) error {
-	if s.runtime == RuntimeLambda {
-		return s.startLambda()
+	if s.runner != nil {
+		return s.runner(s.engine)
 	}
 	return s.startHTTP(port)
 }
@@ -56,19 +40,8 @@ func (s *Server) startHTTP(port int) error {
 	return s.engine.Run(addr)
 }
 
-func (s *Server) startLambda() error {
-	ginLambda := ginadapter.New(s.engine)
-
-	handler := func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-		return ginLambda.ProxyWithContext(ctx, req)
-	}
-
-	lambda.Start(handler)
-	return nil
-}
-
-func (s *Server) SetRuntime(runtime Runtime) {
-	s.runtime = runtime
+func (s *Server) SetRunner(runner Runner) {
+	s.runner = runner
 }
 
 func (s *Server) SetBasePath(path string) *Server {

@@ -7,5 +7,7 @@ use (
 	db/mongo
 	db/dynamodb
 	db/sql
+	storage/s3
+	runtime/lambda
 	example
 )

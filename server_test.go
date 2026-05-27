@@ -77,3 +77,60 @@ func TestServer_Start(t *testing.T) {
 	// as it blocks. In a real scenario, you might want to use integration tests
 	// for this functionality.
 }
+
+func TestServer_Engine(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := New()
+	assert.Equal(t, server.engine, server.Engine())
+}
+
+func TestServer_CustomRunner(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := New()
+
+	runnerCalled := false
+	customRunner := func(engine *gin.Engine) error {
+		runnerCalled = true
+		assert.NotNil(t, engine)
+		return nil
+	}
+
+	server.SetRunner(customRunner)
+	err := server.Start(8080)
+
+	assert.NoError(t, err)
+	assert.True(t, runnerCalled)
+}
+
+func TestServer_CustomRunnerError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := New()
+
+	customRunner := func(engine *gin.Engine) error {
+		return assert.AnError
+	}
+
+	server.SetRunner(customRunner)
+	err := server.Start(8080)
+
+	assert.Equal(t, assert.AnError, err)
+}
+
+type mockFileService struct {
+	FileService
+}
+
+func TestServer_BindFileService(t *testing.T) {
+	server := New()
+	mFS := &mockFileService{}
+	server.BindFileService(mFS)
+	assert.Equal(t, mFS, server.fileService)
+}
+
+func TestServer_DefaultCORS(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := New()
+	server.DefaultCORS()
+	assert.NotNil(t, server.corsConfig)
+	assert.True(t, server.corsConfig.AllowAllOrigins)
+}
