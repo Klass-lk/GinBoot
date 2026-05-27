@@ -1,4 +1,4 @@
-package ginboot
+package sql
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klass-lk/ginboot"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	tcpg "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -15,8 +16,8 @@ import (
 
 var (
 	testSQLCacheDB      *sql.DB
-	testSQLCacheRepo    *SQLRepository[CacheEntry]
-	testSQLTagRepo      *SQLRepository[TagEntry]
+	testSQLCacheRepo    *SQLRepository[ginboot.CacheEntry]
+	testSQLTagRepo      *SQLRepository[ginboot.TagEntry]
 	testSQLCacheService *SQLCacheService
 	onceSQLCache        sync.Once
 )
@@ -58,8 +59,8 @@ func setupSQLCache(t *testing.T) (*SQLCacheService, func()) {
 			panic(fmt.Sprintf("Failed to ping PostgreSQL: %v", err))
 		}
 
-		testSQLCacheRepo = NewSQLRepository[CacheEntry](testSQLCacheDB)
-		testSQLTagRepo = NewSQLRepository[TagEntry](testSQLCacheDB)
+		testSQLCacheRepo = NewSQLRepository[ginboot.CacheEntry](testSQLCacheDB)
+		testSQLTagRepo = NewSQLRepository[ginboot.TagEntry](testSQLCacheDB)
 
 		testSQLCacheService = NewSQLCacheService(testSQLCacheRepo, testSQLTagRepo)
 	})

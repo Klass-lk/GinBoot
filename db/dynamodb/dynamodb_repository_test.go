@@ -1,4 +1,4 @@
-package ginboot
+package dynamodb
 
 import (
 	"context"
@@ -12,13 +12,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/klass-lk/ginboot"
 	"github.com/stretchr/testify/assert"
 	tcddb "github.com/testcontainers/testcontainers-go/modules/dynamodb"
 )
 
 var (
 	testDynamoClient *dynamodb.Client
-	testRepo         *DynamoDBRepository[TestEntity]
+	testRepo         *DynamoDBRepository[ginboot.TestEntity]
 	testTeardown     func()
 )
 
@@ -50,7 +51,7 @@ func TestMain(m *testing.M) {
 	NewDynamoDBConfig().WithTableName("test-table").WithSkipTableCreation(false)
 
 	// Now initialize the actual testRepo that will be used by tests
-	testRepo = NewDynamoDBRepository[TestEntity](testDynamoClient)
+	testRepo = NewDynamoDBRepository[ginboot.TestEntity](testDynamoClient)
 
 	testTeardown = func() {
 		if err := dynamoDBContainer.Terminate(ctx); err != nil {
@@ -63,7 +64,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-func setup(t *testing.T) (*DynamoDBRepository[TestEntity], func()) {
+func setup(t *testing.T) (*DynamoDBRepository[ginboot.TestEntity], func()) {
 	// Clear table before each test
 	ctx := context.Background()
 
@@ -103,7 +104,7 @@ func TestDynamoDBRepository_FindById(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity := TestEntity{ID: "1", Name: "test"}
+	testEntity := ginboot.TestEntity{ID: "1", Name: "test"}
 	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
@@ -118,8 +119,8 @@ func TestDynamoDBRepository_FindAllById(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "1", Name: "test1"}
-	testEntity2 := TestEntity{ID: "2", Name: "test2"}
+	testEntity1 := ginboot.TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := ginboot.TestEntity{ID: "2", Name: "test2"}
 	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
 	err = repo.Save(testEntity2, partitionKey)
@@ -130,7 +131,7 @@ func TestDynamoDBRepository_FindAllById(t *testing.T) {
 	assert.Len(t, foundEntities, 2)
 
 	// Create maps for easy lookup
-	entityMap := make(map[string]TestEntity)
+	entityMap := make(map[string]ginboot.TestEntity)
 	for _, e := range foundEntities {
 		entityMap[e.ID] = e
 	}
@@ -144,7 +145,7 @@ func TestDynamoDBRepository_SaveAll(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntities := []TestEntity{
+	testEntities := []ginboot.TestEntity{
 		{ID: "3", Name: "test3"},
 		{ID: "4", Name: "test4"},
 	}
@@ -165,11 +166,11 @@ func TestDynamoDBRepository_Update(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity := TestEntity{ID: "1", Name: "initial"}
+	testEntity := ginboot.TestEntity{ID: "1", Name: "initial"}
 	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
-	updatedEntity := TestEntity{ID: "1", Name: "updated"}
+	updatedEntity := ginboot.TestEntity{ID: "1", Name: "updated"}
 	err = repo.Update(updatedEntity, partitionKey)
 	assert.NoError(t, err)
 
@@ -183,7 +184,7 @@ func TestDynamoDBRepository_FindOneBy(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity := TestEntity{ID: "5", Name: "findOneTest"}
+	testEntity := ginboot.TestEntity{ID: "5", Name: "findOneTest"}
 	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
@@ -201,7 +202,7 @@ func TestDynamoDBRepository_FindOneByFilters(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity := TestEntity{ID: "6", Name: "filterTest", Value: 10}
+	testEntity := ginboot.TestEntity{ID: "6", Name: "filterTest", Value: 10}
 	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
@@ -228,9 +229,9 @@ func TestDynamoDBRepository_FindBy(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "7", Name: "findByTest", Value: 1}
-	testEntity2 := TestEntity{ID: "8", Name: "findByTest", Value: 2}
-	testEntity3 := TestEntity{ID: "9", Name: "another", Value: 1}
+	testEntity1 := ginboot.TestEntity{ID: "7", Name: "findByTest", Value: 1}
+	testEntity2 := ginboot.TestEntity{ID: "8", Name: "findByTest", Value: 2}
+	testEntity3 := ginboot.TestEntity{ID: "9", Name: "another", Value: 1}
 	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
 	err = repo.Save(testEntity2, partitionKey)
@@ -243,7 +244,7 @@ func TestDynamoDBRepository_FindBy(t *testing.T) {
 	assert.Len(t, foundEntities, 2)
 
 	// Create maps for easy lookup
-	entityMap := make(map[string]TestEntity)
+	entityMap := make(map[string]ginboot.TestEntity)
 	for _, e := range foundEntities {
 		entityMap[e.ID] = e
 	}
@@ -257,9 +258,9 @@ func TestDynamoDBRepository_FindByFilters(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "10", Name: "filterTest1", Value: 100}
-	testEntity2 := TestEntity{ID: "11", Name: "filterTest2", Value: 100}
-	testEntity3 := TestEntity{ID: "12", Name: "filterTest1", Value: 200}
+	testEntity1 := ginboot.TestEntity{ID: "10", Name: "filterTest1", Value: 100}
+	testEntity2 := ginboot.TestEntity{ID: "11", Name: "filterTest2", Value: 100}
+	testEntity3 := ginboot.TestEntity{ID: "12", Name: "filterTest1", Value: 200}
 	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
 	err = repo.Save(testEntity2, partitionKey)
@@ -289,8 +290,8 @@ func TestDynamoDBRepository_FindAll(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "13", Name: "all1", Value: 1}
-	testEntity2 := TestEntity{ID: "14", Name: "all2", Value: 2}
+	testEntity1 := ginboot.TestEntity{ID: "13", Name: "all1", Value: 1}
+	testEntity2 := ginboot.TestEntity{ID: "14", Name: "all2", Value: 2}
 	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
 	err = repo.Save(testEntity2, partitionKey)
@@ -301,7 +302,7 @@ func TestDynamoDBRepository_FindAll(t *testing.T) {
 	assert.Len(t, foundEntities, 2)
 
 	// Create maps for easy lookup
-	entityMap := make(map[string]TestEntity)
+	entityMap := make(map[string]ginboot.TestEntity)
 	for _, e := range foundEntities {
 		entityMap[e.ID] = e
 	}
@@ -317,12 +318,12 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 	partitionKey := "test-partition"
 	// Save 5 entities for pagination testing
 	for i := 0; i < 5; i++ {
-		err := repo.Save(TestEntity{ID: "paginated" + string(rune('A'+i)), Name: "paginated", Value: i}, partitionKey)
+		err := repo.Save(ginboot.TestEntity{ID: "paginated" + string(rune('A'+i)), Name: "paginated", Value: i}, partitionKey)
 		assert.NoError(t, err)
 	}
 
 	// Test first page
-	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageRequest1 := ginboot.PageRequest{Page: 1, Size: 2}
 	pageResponse1, err := repo.FindAllPaginated(pageRequest1, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse1.Contents, 2)
@@ -330,7 +331,7 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 	assert.Equal(t, 3, pageResponse1.TotalPages)
 
 	// Test second page
-	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageRequest2 := ginboot.PageRequest{Page: 2, Size: 2}
 	pageResponse2, err := repo.FindAllPaginated(pageRequest2, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse2.Contents, 2)
@@ -338,7 +339,7 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 	assert.Equal(t, 3, pageResponse2.TotalPages)
 
 	// Test last page (with one item)
-	pageRequest3 := PageRequest{Page: 3, Size: 2}
+	pageRequest3 := ginboot.PageRequest{Page: 3, Size: 2}
 	pageResponse3, err := repo.FindAllPaginated(pageRequest3, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse3.Contents, 1)
@@ -346,7 +347,7 @@ func TestDynamoDBRepository_FindAllPaginated(t *testing.T) {
 	assert.Equal(t, 3, pageResponse3.TotalPages)
 
 	// Test page size of -1 (all items)
-	pageRequestAll := PageRequest{Page: 1, Size: -1}
+	pageRequestAll := ginboot.PageRequest{Page: 1, Size: -1}
 	pageResponseAll, err := repo.FindAllPaginated(pageRequestAll, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponseAll.Contents, 5)
@@ -359,9 +360,9 @@ func TestDynamoDBRepository_FindAllPaginated_SingleResult(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	_ = repo.Save(TestEntity{ID: "single", Name: "filtered", Value: 10}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "single", Name: "filtered", Value: 10}, partitionKey)
 
-	pageRequest := PageRequest{Page: 1, Size: 50}
+	pageRequest := ginboot.PageRequest{Page: 1, Size: 50}
 	pageResponse, err := repo.FindAllPaginated(pageRequest, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse.Contents, 1)
@@ -374,18 +375,17 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	// Save entities for pagination with filters
-	_ = repo.Save(TestEntity{ID: "fp1", Name: "filtered", Value: 10}, partitionKey)
-	_ = repo.Save(TestEntity{ID: "fp2", Name: "filtered", Value: 20}, partitionKey)
-	_ = repo.Save(TestEntity{ID: "fp3", Name: "other", Value: 10}, partitionKey)
-	_ = repo.Save(TestEntity{ID: "fp4", Name: "filtered", Value: 30}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "fp1", Name: "filtered", Value: 10}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "fp2", Name: "filtered", Value: 20}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "fp3", Name: "other", Value: 10}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "fp4", Name: "filtered", Value: 30}, partitionKey)
 
 	filters := map[string]interface{}{
 		"Name": "filtered",
 	}
 
 	// Test first page with filter
-	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageRequest1 := ginboot.PageRequest{Page: 1, Size: 2}
 	pageResponse1, err := repo.FindByPaginated(pageRequest1, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse1.Contents, 2)
@@ -393,7 +393,7 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 	assert.Equal(t, 2, pageResponse1.TotalPages)
 
 	// Test second page with filter
-	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageRequest2 := ginboot.PageRequest{Page: 2, Size: 2}
 	pageResponse2, err := repo.FindByPaginated(pageRequest2, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse2.Contents, 1)
@@ -401,7 +401,7 @@ func TestDynamoDBRepository_FindByPaginated(t *testing.T) {
 	assert.Equal(t, 2, pageResponse2.TotalPages)
 
 	// Test page size of -1 (all items)
-	pageRequestAll := PageRequest{Page: 1, Size: -1}
+	pageRequestAll := ginboot.PageRequest{Page: 1, Size: -1}
 	pageResponseAll, err := repo.FindByPaginated(pageRequestAll, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponseAll.Contents, 3)
@@ -414,13 +414,13 @@ func TestDynamoDBRepository_FindByPaginated_SingleResult(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	_ = repo.Save(TestEntity{ID: "single", Name: "filtered", Value: 10}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "single", Name: "filtered", Value: 10}, partitionKey)
 
 	filters := map[string]interface{}{
 		"Name": "filtered",
 	}
 
-	pageRequest := PageRequest{Page: 1, Size: 50}
+	pageRequest := ginboot.PageRequest{Page: 1, Size: 50}
 	pageResponse, err := repo.FindByPaginated(pageRequest, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse.Contents, 1)
@@ -433,9 +433,9 @@ func TestDynamoDBRepository_CountBy(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	_ = repo.Save(TestEntity{ID: "cb1", Name: "countTest", Value: 1}, partitionKey)
-	_ = repo.Save(TestEntity{ID: "cb2", Name: "countTest", Value: 2}, partitionKey)
-	_ = repo.Save(TestEntity{ID: "cb3", Name: "another", Value: 1}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "cb1", Name: "countTest", Value: 1}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "cb2", Name: "countTest", Value: 2}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "cb3", Name: "another", Value: 1}, partitionKey)
 
 	count, err := repo.CountBy("Name", "countTest", partitionKey)
 	assert.NoError(t, err)
@@ -455,9 +455,9 @@ func TestDynamoDBRepository_CountByFilters(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	_ = repo.Save(TestEntity{ID: "cbf1", Name: "filterCount", Value: 10}, partitionKey)
-	_ = repo.Save(TestEntity{ID: "cbf2", Name: "filterCount", Value: 20}, partitionKey)
-	_ = repo.Save(TestEntity{ID: "cbf3", Name: "other", Value: 10}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "cbf1", Name: "filterCount", Value: 10}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "cbf2", Name: "filterCount", Value: 20}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "cbf3", Name: "other", Value: 10}, partitionKey)
 
 	filters := map[string]interface{}{
 		"Name":  "filterCount",
@@ -487,7 +487,7 @@ func TestDynamoDBRepository_ExistsBy(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	_ = repo.Save(TestEntity{ID: "eb1", Name: "existsTest", Value: 1}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "eb1", Name: "existsTest", Value: 1}, partitionKey)
 
 	exists, err := repo.ExistsBy("Name", "existsTest", partitionKey)
 	assert.NoError(t, err)
@@ -503,7 +503,7 @@ func TestDynamoDBRepository_ExistsByFilters(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	_ = repo.Save(TestEntity{ID: "ebf1", Name: "filterExists", Value: 10}, partitionKey)
+	_ = repo.Save(ginboot.TestEntity{ID: "ebf1", Name: "filterExists", Value: 10}, partitionKey)
 
 	filters := map[string]interface{}{
 		"Name":  "filterExists",
@@ -527,9 +527,9 @@ func TestDynamoDBRepository_DeleteAll(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition-for-delete"
-	testEntity1 := TestEntity{ID: "del1", Name: "delete_me"}
-	testEntity2 := TestEntity{ID: "del2", Name: "delete_me_too"}
-	testEntity3 := TestEntity{ID: "del3", Name: "keep_me"}
+	testEntity1 := ginboot.TestEntity{ID: "del1", Name: "delete_me"}
+	testEntity2 := ginboot.TestEntity{ID: "del2", Name: "delete_me_too"}
+	testEntity3 := ginboot.TestEntity{ID: "del3", Name: "keep_me"}
 	err := repo.Save(testEntity1, partitionKey)
 	assert.NoError(t, err)
 	err = repo.Save(testEntity2, partitionKey)
@@ -558,9 +558,9 @@ func TestDynamoDBRepository_FindAll_SortsByCreatedAt(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "1", Name: "test1"}
-	testEntity2 := TestEntity{ID: "2", Name: "test2"}
-	testEntity3 := TestEntity{ID: "3", Name: "test3"}
+	testEntity1 := ginboot.TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := ginboot.TestEntity{ID: "2", Name: "test2"}
+	testEntity3 := ginboot.TestEntity{ID: "3", Name: "test3"}
 
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest
@@ -589,9 +589,9 @@ func TestDynamoDBRepository_FindAllById_SortsByCreatedAt(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "1", Name: "test1"}
-	testEntity2 := TestEntity{ID: "2", Name: "test2"}
-	testEntity3 := TestEntity{ID: "3", Name: "test3"}
+	testEntity1 := ginboot.TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := ginboot.TestEntity{ID: "2", Name: "test2"}
+	testEntity3 := ginboot.TestEntity{ID: "3", Name: "test3"}
 
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest
@@ -620,11 +620,11 @@ func TestDynamoDBRepository_TTL(t *testing.T) {
 	defer teardown()
 
 	// 1. Create a new repository with TTL
-	ttlRepo := NewDynamoDBRepositoryWithTTL[TestEntity](testDynamoClient, time.Hour)
+	ttlRepo := NewDynamoDBRepositoryWithTTL[ginboot.TestEntity](testDynamoClient, time.Hour)
 
 	// 2. Save an entity
 	partitionKey := "ttl-partition"
-	testEntity := TestEntity{ID: "ttl-1", Name: "ttl-test"}
+	testEntity := ginboot.TestEntity{ID: "ttl-1", Name: "ttl-test"}
 	err := ttlRepo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
@@ -661,12 +661,12 @@ func TestDynamoDBRepository_TTL(t *testing.T) {
 }
 
 func TestDynamoDBRepository_NoTTL(t *testing.T) {
-	repo, teardown := setup(t) // this repo is created without TTL
+	repo, teardown := setup(t)
 	defer teardown()
 
 	// Save an entity
 	partitionKey := "nottl-partition"
-	testEntity := TestEntity{ID: "nottl-1", Name: "nottl-test"}
+	testEntity := ginboot.TestEntity{ID: "nottl-1", Name: "nottl-test"}
 	err := repo.Save(testEntity, partitionKey)
 	assert.NoError(t, err)
 
@@ -709,9 +709,9 @@ func TestDynamoDBRepository_FindAllPaginated_SortsByCreatedAt(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	testEntity1 := TestEntity{ID: "1", Name: "test1"}
-	testEntity2 := TestEntity{ID: "2", Name: "test2"}
-	testEntity3 := TestEntity{ID: "3", Name: "test3"}
+	testEntity1 := ginboot.TestEntity{ID: "1", Name: "test1"}
+	testEntity2 := ginboot.TestEntity{ID: "2", Name: "test2"}
+	testEntity3 := ginboot.TestEntity{ID: "3", Name: "test3"}
 
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest
@@ -726,7 +726,7 @@ func TestDynamoDBRepository_FindAllPaginated_SortsByCreatedAt(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Page 1, size 2
-	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageRequest1 := ginboot.PageRequest{Page: 1, Size: 2}
 	pageResponse1, err := repo.FindAllPaginated(pageRequest1, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse1.Contents, 2)
@@ -736,7 +736,7 @@ func TestDynamoDBRepository_FindAllPaginated_SortsByCreatedAt(t *testing.T) {
 	assert.Equal(t, "1", pageResponse1.Contents[1].ID) // middle
 
 	// Page 2, size 2
-	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageRequest2 := ginboot.PageRequest{Page: 2, Size: 2}
 	pageResponse2, err := repo.FindAllPaginated(pageRequest2, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse2.Contents, 1)
@@ -750,12 +750,10 @@ func TestDynamoDBRepository_FindByPaginated_SortsByCreatedAt(t *testing.T) {
 	defer teardown()
 
 	partitionKey := "test-partition"
-	// Entities to be filtered
-	testEntity1 := TestEntity{ID: "1", Name: "filtered"}
-	testEntity2 := TestEntity{ID: "2", Name: "filtered"}
-	testEntity3 := TestEntity{ID: "3", Name: "filtered"}
-	// Entity to be ignored
-	testEntity4 := TestEntity{ID: "4", Name: "not-filtered"}
+	testEntity1 := ginboot.TestEntity{ID: "1", Name: "filtered"}
+	testEntity2 := ginboot.TestEntity{ID: "2", Name: "filtered"}
+	testEntity3 := ginboot.TestEntity{ID: "3", Name: "filtered"}
+	testEntity4 := ginboot.TestEntity{ID: "4", Name: "not-filtered"}
 
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest filtered
@@ -778,7 +776,7 @@ func TestDynamoDBRepository_FindByPaginated_SortsByCreatedAt(t *testing.T) {
 	}
 
 	// Page 1, size 2
-	pageRequest1 := PageRequest{Page: 1, Size: 2}
+	pageRequest1 := ginboot.PageRequest{Page: 1, Size: 2}
 	pageResponse1, err := repo.FindByPaginated(pageRequest1, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse1.Contents, 2)
@@ -788,7 +786,7 @@ func TestDynamoDBRepository_FindByPaginated_SortsByCreatedAt(t *testing.T) {
 	assert.Equal(t, "1", pageResponse1.Contents[1].ID) // middle
 
 	// Page 2, size 2
-	pageRequest2 := PageRequest{Page: 2, Size: 2}
+	pageRequest2 := ginboot.PageRequest{Page: 2, Size: 2}
 	pageResponse2, err := repo.FindByPaginated(pageRequest2, filters, partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, pageResponse2.Contents, 1)
@@ -803,35 +801,29 @@ func TestDynamoDBRepository_FindAllPaginated_LargeDataset(t *testing.T) {
 
 	partitionKey := "large-dataset-partition"
 
-	// Create a large payload to trigger 1MB limit quickly
-	// 1000 bytes per item
 	largePayload := make([]byte, 1000)
 	for i := range largePayload {
 		largePayload[i] = 'a'
 	}
 	payloadStr := string(largePayload)
 
-	// 1500 items * ~1KB > 1MB limit
 	numItems := 1500
-	var entities []TestEntity
+	var entities []ginboot.TestEntity
 	for i := 0; i < numItems; i++ {
-		entities = append(entities, TestEntity{
+		entities = append(entities, ginboot.TestEntity{
 			ID:   fmt.Sprintf("large-%d", i),
 			Name: payloadStr,
 		})
 	}
 
-	// Save using SaveAll for efficiency
 	err := repo.SaveAll(entities, partitionKey)
 	assert.NoError(t, err)
 
-	// Test FindAll (should fetch all 1500 items)
 	foundAll, err := repo.FindAll(partitionKey)
 	assert.NoError(t, err)
 	assert.Len(t, foundAll, numItems, "FindAll should return all items despite 1MB limit")
 
-	// Test FindAllPaginated (Size -1)
-	pageRequestAll := PageRequest{Page: 1, Size: -1}
+	pageRequestAll := ginboot.PageRequest{Page: 1, Size: -1}
 	pageResponseAll, err := repo.FindAllPaginated(pageRequestAll, partitionKey)
 	assert.NoError(t, err)
 	assert.Equal(t, numItems, pageResponseAll.TotalElements, "FindAllPaginated should return correct total elements")

@@ -1,4 +1,4 @@
-package ginboot
+package dynamodb
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/klass-lk/ginboot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -151,17 +152,16 @@ func TestCacheService_Get_Hit(t *testing.T) {
 	key := "key1"
 	data := []byte("value")
 
-	cacheEntry := CacheEntry{
-		PK:   CachePartitionPrefix + key,
-		SK:   CacheSortKey,
+	cacheEntry := ginboot.CacheEntry{
+		PK:   ginboot.CachePartitionPrefix + key,
+		SK:   ginboot.CacheSortKey,
 		Data: data,
 		TTL:  time.Now().Add(time.Minute).Unix(),
 	}
-	// Wrap in DynamoDBItem as Repository does
 	ceJson, _ := json.Marshal(cacheEntry)
 	ddbItem := DynamoDBItem{
 		PK:   "CacheEntry#" + key,
-		SK:   CacheSortKey,
+		SK:   ginboot.CacheSortKey,
 		Data: string(ceJson),
 	}
 	itemMap, _ := attributevalue.MarshalMap(ddbItem)
@@ -213,16 +213,16 @@ func TestCacheService_Get_Expired(t *testing.T) {
 	ctx := context.Background()
 	key := "key1"
 
-	cacheEntry := CacheEntry{
-		PK:   CachePartitionPrefix + key,
-		SK:   CacheSortKey,
+	cacheEntry := ginboot.CacheEntry{
+		PK:   ginboot.CachePartitionPrefix + key,
+		SK:   ginboot.CacheSortKey,
 		Data: []byte("value"),
 		TTL:  time.Now().Add(-time.Minute).Unix(), // Expired
 	}
 	ceJson, _ := json.Marshal(cacheEntry)
 	ddbItem := DynamoDBItem{
 		PK:   "CacheEntry#" + key,
-		SK:   CacheSortKey,
+		SK:   ginboot.CacheSortKey,
 		Data: string(ceJson),
 	}
 	itemMap, _ := attributevalue.MarshalMap(ddbItem)
@@ -250,9 +250,9 @@ func TestCacheService_Invalidate(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock Query for tag
-	tagEntry := TagEntry{
-		PK: TagPartitionPrefix + "tag1",
-		SK: "key1", // SK stores the cache key
+	tagEntry := ginboot.TagEntry{
+		PK: ginboot.TagPartitionPrefix + "tag1",
+		SK: "key1",
 	}
 	teJson, _ := json.Marshal(tagEntry)
 	ddbItem := DynamoDBItem{

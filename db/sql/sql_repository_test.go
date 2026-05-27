@@ -1,5 +1,4 @@
-// This is a test comment to trigger re-evaluation.
-package ginboot
+package sql
 
 import (
 	"context"
@@ -94,8 +93,6 @@ func setupSQL(t *testing.T) (*SQLRepository[TestSQLEntity], func()) {
 }
 
 func TestSQLRepository_CreateTable(t *testing.T) {
-	// Table is created in TestMain, so this test just verifies its existence
-	// by trying to create it again (which should not return an error if it exists)
 	repo, teardown := setupSQL(t)
 	defer teardown()
 
