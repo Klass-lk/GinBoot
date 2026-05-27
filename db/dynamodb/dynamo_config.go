@@ -1,4 +1,4 @@
-package ginboot
+package dynamodb
 
 import "sync"
 

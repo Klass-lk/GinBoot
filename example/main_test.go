@@ -8,9 +8,9 @@ import (
 	"github.com/cucumber/godog/colors"
 	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
+	dbMongo "github.com/klass-lk/ginboot/db/mongo"
 	"github.com/klass-lk/ginboot/example/internal/controller"
 	"github.com/klass-lk/ginboot/example/internal/model"
-	"github.com/klass-lk/ginboot/example/internal/repository"
 	"github.com/klass-lk/ginboot/example/internal/service"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
@@ -27,7 +27,7 @@ func TestFeatures(t *testing.T) {
 	testSuite := &ginboot.TestSuite{T: t, DbSeeders: make(map[string]ginboot.DBSeeder)}
 
 	// Create a generic seeder
-	adapter := &ginboot.MongoAdapter{DB: db}
+	adapter := &dbMongo.MongoAdapter{DB: db}
 	seeder := ginboot.NewGenericDBSeeder(adapter)
 
 	// Register your document types with the seeder
@@ -79,13 +79,15 @@ func setupTestDB(ctx context.Context) *mongo.Database {
 
 func setupRouter(ctx context.Context, db *mongo.Database) (*gin.Engine, func()) {
 	// Create a new repository
-	postRepo := repository.NewPostRepository(db)
+	postRepo := dbMongo.NewMongoRepository[model.Post](db, "posts")
+	cacheRepo := dbMongo.NewMongoRepository[ginboot.CacheEntry](db, "cache_entries")
 
 	// Create a new service
 	postService := service.NewPostService(postRepo)
+	cacheService := dbMongo.NewMongoCacheService(cacheRepo)
 
 	// Create a new controller
-	postController := controller.NewPostController(postService)
+	postController := controller.NewPostController(postService, cacheService, nil)
 
 	// Create a new server
 	server := ginboot.New()

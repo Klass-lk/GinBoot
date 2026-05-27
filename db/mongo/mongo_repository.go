@@ -1,10 +1,11 @@
-package ginboot
+package mongo
 
 import (
 	"context"
 	"math"
 	"time"
 
+	"github.com/klass-lk/ginboot"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -173,7 +174,7 @@ func (r *MongoRepository[T]) FindAll(findOpts ...interface{}) ([]T, error) {
 	return results, nil
 }
 
-func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error) {
+func (r *MongoRepository[T]) FindAllPaginated(pageRequest ginboot.PageRequest) (ginboot.PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -182,7 +183,7 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResp
 
 	total, err := r.collection.CountDocuments(ctx, bson.M{})
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
 	opts := options.Find().
@@ -199,18 +200,18 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResp
 
 	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 	defer cursor.Close(ctx)
 
 	var items []T
 	if err = cursor.All(ctx, &items); err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
 	totalPages := int(math.Ceil(float64(total) / float64(pageRequest.Size)))
 
-	return PageResponse[T]{
+	return ginboot.PageResponse[T]{
 		Contents:         items,
 		NumberOfElements: len(items),
 		Pageable:         pageRequest,
@@ -219,7 +220,7 @@ func (r *MongoRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResp
 	}, nil
 }
 
-func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error) {
+func (r *MongoRepository[T]) FindByPaginated(pageRequest ginboot.PageRequest, filters map[string]interface{}) (ginboot.PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -228,7 +229,7 @@ func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters ma
 
 	total, err := r.collection.CountDocuments(ctx, filters)
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
 	opts := options.Find().
@@ -245,18 +246,18 @@ func (r *MongoRepository[T]) FindByPaginated(pageRequest PageRequest, filters ma
 
 	cursor, err := r.collection.Find(ctx, filters, opts)
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 	defer cursor.Close(ctx)
 
 	var items []T
 	if err = cursor.All(ctx, &items); err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
 	totalPages := int(math.Ceil(float64(total) / float64(pageRequest.Size)))
 
-	return PageResponse[T]{
+	return ginboot.PageResponse[T]{
 		Contents:         items,
 		NumberOfElements: len(items),
 		Pageable:         pageRequest,

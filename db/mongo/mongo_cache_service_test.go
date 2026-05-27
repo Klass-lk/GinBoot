@@ -1,4 +1,4 @@
-package ginboot
+package mongo
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/docker/go-connections/nat"
+	"github.com/klass-lk/ginboot"
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -48,7 +49,7 @@ func setupMongoCache(t *testing.T) (*MongoCacheService, func()) {
 		t.Fatalf("Failed to connect to Mongo: %v", err)
 	}
 
-	repo := NewMongoRepository[CacheEntry](db, "cache_entries")
+	repo := NewMongoRepository[ginboot.CacheEntry](db, "cache_entries")
 	service := NewMongoCacheService(repo)
 
 	return service, func() {

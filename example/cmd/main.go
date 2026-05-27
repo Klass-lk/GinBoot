@@ -7,8 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
+	dbMongo "github.com/klass-lk/ginboot/db/mongo"
 	"github.com/klass-lk/ginboot/example/internal/controller"
-	"github.com/klass-lk/ginboot/example/internal/repository"
+	"github.com/klass-lk/ginboot/example/internal/model"
 	"github.com/klass-lk/ginboot/example/internal/service"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -23,7 +24,7 @@ func main() {
 	defer client.Disconnect(context.TODO())
 
 	// Initialize repositories
-	postRepo := repository.NewPostRepository(client.Database("example"))
+	postRepo := dbMongo.NewMongoRepository[model.Post](client.Database("example"), "posts")
 
 	// Initialize services
 	postService := service.NewPostService(postRepo)
@@ -43,8 +44,8 @@ func main() {
 	)
 
 	// Initialize Cache Service (Mongo)
-	cacheRepo := ginboot.NewMongoRepository[ginboot.CacheEntry](client.Database("example"), "cache_entries")
-	cacheService := ginboot.NewMongoCacheService(cacheRepo)
+	cacheRepo := dbMongo.NewMongoRepository[ginboot.CacheEntry](client.Database("example"), "cache_entries")
+	cacheService := dbMongo.NewMongoCacheService(cacheRepo)
 
 	// Tag Generator: Tag all requests to /posts as "posts"
 	// In a real app, this would be more sophisticated (e.g. tagging by ID)
@@ -56,10 +57,8 @@ func main() {
 
 	// Initialize and register controllers
 	postController := controller.NewPostController(postService, cacheService, cacheMiddleware)
-	cacheController := controller.NewCacheController(cacheService)
 
 	server.RegisterController("/posts", postController)
-	server.RegisterController("/cache", cacheController)
 
 	fileService := ginboot.NewS3FileService(context.Background(), "example-bucket", "./local", "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "us-east-1", "3600")
 	server.BindFileService(fileService)

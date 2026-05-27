@@ -1,18 +1,20 @@
-package ginboot
+package sql
 
 import (
 	"database/sql"
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/klass-lk/ginboot"
 )
 
-type SQLRepository[T Document] struct {
+type SQLRepository[T ginboot.Document] struct {
 	db        *sql.DB
 	tableName string
 }
 
-func NewSQLRepository[T Document](db *sql.DB) *SQLRepository[T] {
+func NewSQLRepository[T ginboot.Document](db *sql.DB) *SQLRepository[T] {
 	var doc T
 	return &SQLRepository[T]{
 		db:        db,
@@ -214,29 +216,29 @@ func (r *SQLRepository[T]) FindAll(options ...interface{}) ([]T, error) {
 	return results, nil
 }
 
-func (r *SQLRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageResponse[T], error) {
+func (r *SQLRepository[T]) FindAllPaginated(pageRequest ginboot.PageRequest) (ginboot.PageResponse[T], error) {
 	offset := (pageRequest.Page - 1) * pageRequest.Size
 	query := fmt.Sprintf("SELECT * FROM %s LIMIT $1 OFFSET $2", r.tableName)
 
 	rows, err := r.db.Query(query, pageRequest.Size, offset)
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 	defer rows.Close()
 
 	var results []T
 	results, err = r.scanRows(rows)
 	if err = rows.Err(); err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
 	var total int
 	err = r.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", r.tableName)).Scan(&total)
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
-	return PageResponse[T]{
+	return ginboot.PageResponse[T]{
 		Contents:         results,
 		NumberOfElements: pageRequest.Size,
 		Pageable:         pageRequest,
@@ -245,7 +247,7 @@ func (r *SQLRepository[T]) FindAllPaginated(pageRequest PageRequest) (PageRespon
 	}, nil
 }
 
-func (r *SQLRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}) (PageResponse[T], error) {
+func (r *SQLRepository[T]) FindByPaginated(pageRequest ginboot.PageRequest, filters map[string]interface{}) (ginboot.PageResponse[T], error) {
 	conditions, values := r.buildWhereClause(filters)
 	offset := (pageRequest.Page - 1) * pageRequest.Size
 
@@ -255,24 +257,24 @@ func (r *SQLRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[
 	queryValues := append(values, pageRequest.Size, offset)
 	rows, err := r.db.Query(query, queryValues...)
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 	defer rows.Close()
 
 	var results []T
 	results, err = r.scanRows(rows)
 	if err = rows.Err(); err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", r.tableName, conditions)
 	var total int
 	err = r.db.QueryRow(countQuery, values...).Scan(&total)
 	if err != nil {
-		return PageResponse[T]{}, err
+		return ginboot.PageResponse[T]{}, err
 	}
 
-	return PageResponse[T]{
+	return ginboot.PageResponse[T]{
 		Contents:         results,
 		NumberOfElements: pageRequest.Size,
 		Pageable:         pageRequest,
@@ -429,7 +431,6 @@ func (r *SQLRepository[T]) CreateTable() error {
 			sqlType = "BOOLEAN"
 		case reflect.Float32, reflect.Float64:
 			sqlType = "REAL"
-			// Add more type mappings as needed
 		}
 
 		columnDef := fmt.Sprintf("%s %s", columnName, sqlType)

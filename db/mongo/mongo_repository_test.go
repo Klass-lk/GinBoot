@@ -1,4 +1,4 @@
-package ginboot
+package mongo
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/go-connections/nat"
+	"github.com/klass-lk/ginboot"
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -249,10 +250,10 @@ func TestMongoRepository(t *testing.T) {
 		}
 
 		// Test pagination
-		pageRequest := PageRequest{
+		pageRequest := ginboot.PageRequest{
 			Page: 1,
 			Size: 5,
-			Sort: SortField{
+			Sort: ginboot.SortField{
 				Field:     "age",
 				Direction: 1,
 			},

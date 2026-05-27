@@ -1,4 +1,4 @@
-package ginboot
+package dynamodb
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/klass-lk/ginboot"
 )
 
 type DynamoDBItem struct {
@@ -183,7 +184,6 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 
 	keys := make([]map[string]types.AttributeValue, len(ids))
 	for i, id := range ids {
-		// SK is the id from the list
 		key, err := attributevalue.MarshalMap(map[string]string{
 			"pk": pk,
 			"sk": id,
@@ -269,7 +269,7 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	newItem := DynamoDBItem{
 		PK:        pk,
 		SK:        sk,
-		ID:        id, // Keep for GSI, though may be redundant for some queries now
+		ID:        id,
 		Data:      string(data),
 		CreatedAt: createdAt,
 		UpdatedAt: now,
@@ -318,14 +318,11 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 		}
 		sk := id // SK is the entity id
 
-		// Get current version and increment it
 		var version int64
 		var createdAt int64
 
-		// Try to find existing item to get version
 		item, err := r.findById(pk, sk)
 		if err == nil {
-			// Item exists, get its version and createdAt
 			version = item.Version
 			createdAt = item.CreatedAt
 		}
@@ -363,7 +360,6 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 		}
 	}
 
-	// Batch write in chunks of 25
 	for i := 0; i < len(writeRequests); i += 25 {
 		end := i + 25
 		if end > len(writeRequests) {
@@ -549,7 +545,7 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
-		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
+		ScanIndexForward: aws.Bool(false),
 	}
 
 	for {
@@ -580,7 +576,6 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 
 			match := true
 			if opMap, ok := value.(map[string]interface{}); ok {
-				// Handle operators like $gte, $lt
 				for op, opValue := range opMap {
 					switch op {
 					case "$gte":
@@ -592,12 +587,10 @@ func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitio
 							match = false
 						}
 					default:
-						// Unknown operator, treat as no match
 						match = false
 					}
 				}
 			} else {
-				// Direct equality match
 				if !reflect.DeepEqual(fieldValue, value) {
 					match = false
 				}
@@ -632,7 +625,7 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
-		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
+		ScanIndexForward: aws.Bool(false),
 	}
 
 	for {
@@ -664,7 +657,6 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 				fieldValue := val.FieldByName(field).Interface()
 
 				if opMap, ok := filterValue.(map[string]interface{}); ok {
-					// Handle operators like $gte, $lt
 					for op, opValue := range opMap {
 						switch op {
 						case "$gte":
@@ -676,12 +668,10 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 								match = false
 							}
 						default:
-							// Unknown operator, treat as no match
 							match = false
 						}
 					}
 				} else {
-					// Direct equality match
 					if !reflect.DeepEqual(fieldValue, filterValue) {
 						match = false
 					}
@@ -705,6 +695,7 @@ func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, pa
 
 	return results, nil
 }
+
 func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -720,7 +711,7 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
-		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
+		ScanIndexForward: aws.Bool(false),
 	}
 
 	for {
@@ -753,7 +744,7 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 	return results, nil
 }
 
-func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partitionKey string) (PageResponse[T], error) {
+func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest ginboot.PageRequest, partitionKey string) (ginboot.PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -768,13 +759,13 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
-		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
+		ScanIndexForward: aws.Bool(false),
 	}
 
 	for {
 		output, err := r.client.Query(ctx, input)
 		if err != nil {
-			return PageResponse[T]{}, err
+			return ginboot.PageResponse[T]{}, err
 		}
 
 		for _, item := range output.Items {
@@ -782,12 +773,12 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 			var tempItem DynamoDBItem
 			err = attributevalue.UnmarshalMap(item, &tempItem)
 			if err != nil {
-				return PageResponse[T]{}, err
+				return ginboot.PageResponse[T]{}, err
 			}
 
 			err = json.Unmarshal([]byte(tempItem.Data), &temp)
 			if err != nil {
-				return PageResponse[T]{}, err
+				return ginboot.PageResponse[T]{}, err
 			}
 			results = append(results, temp)
 		}
@@ -799,7 +790,7 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 	}
 
 	if pageRequest.Size == -1 {
-		return PageResponse[T]{
+		return ginboot.PageResponse[T]{
 			Contents:         results,
 			NumberOfElements: len(results),
 			Pageable:         pageRequest,
@@ -830,7 +821,7 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 		pagedResults = results[start:end]
 	}
 
-	return PageResponse[T]{
+	return ginboot.PageResponse[T]{
 		Contents:         pagedResults,
 		NumberOfElements: len(pagedResults),
 		Pageable:         pageRequest,
@@ -839,7 +830,7 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest PageRequest, partit
 	}, nil
 }
 
-func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters map[string]interface{}, partitionKey string) (PageResponse[T], error) {
+func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest ginboot.PageRequest, filters map[string]interface{}, partitionKey string) (ginboot.PageResponse[T], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -854,13 +845,13 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":pk": &types.AttributeValueMemberS{Value: pk},
 		},
-		ScanIndexForward: aws.Bool(false), // Sort by createdAt DESC
+		ScanIndexForward: aws.Bool(false),
 	}
 
 	for {
 		output, err := r.client.Query(ctx, input)
 		if err != nil {
-			return PageResponse[T]{}, err
+			return ginboot.PageResponse[T]{}, err
 		}
 
 		for _, item := range output.Items {
@@ -868,12 +859,12 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 			var tempItem DynamoDBItem
 			err = attributevalue.UnmarshalMap(item, &tempItem)
 			if err != nil {
-				return PageResponse[T]{}, err
+				return ginboot.PageResponse[T]{}, err
 			}
 
 			err = json.Unmarshal([]byte(tempItem.Data), &temp)
 			if err != nil {
-				return PageResponse[T]{}, err
+				return ginboot.PageResponse[T]{}, err
 			}
 
 			match := true
@@ -902,7 +893,7 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 	}
 
 	if pageRequest.Size == -1 {
-		return PageResponse[T]{
+		return ginboot.PageResponse[T]{
 			Contents:         results,
 			NumberOfElements: len(results),
 			Pageable:         pageRequest,
@@ -927,7 +918,7 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest PageRequest, filters
 		pagedResults = results[start:end]
 	}
 
-	return PageResponse[T]{
+	return ginboot.PageResponse[T]{
 		Contents:         pagedResults,
 		NumberOfElements: len(pagedResults),
 		Pageable:         pageRequest,
@@ -980,7 +971,6 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}, partiti
 
 			match := true
 			if opMap, ok := value.(map[string]interface{}); ok {
-				// Handle operators like $gte, $lt
 				for op, opValue := range opMap {
 					switch op {
 					case "$gte":
@@ -992,12 +982,10 @@ func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}, partiti
 							match = false
 						}
 					default:
-						// Unknown operator, treat as no match
 						match = false
 					}
 				}
 			} else {
-				// Direct equality match
 				if !reflect.DeepEqual(fieldValue, value) {
 					match = false
 				}
@@ -1062,7 +1050,6 @@ func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}, p
 				fieldValue := val.FieldByName(field).Interface()
 
 				if opMap, ok := filterValue.(map[string]interface{}); ok {
-					// Handle operators like $gte, $lt
 					for op, opValue := range opMap {
 						switch op {
 						case "$gte":
@@ -1074,12 +1061,10 @@ func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}, p
 								match = false
 							}
 						default:
-							// Unknown operator, treat as no match
 							match = false
 						}
 					}
 				} else {
-					// Direct equality match
 					if !reflect.DeepEqual(fieldValue, filterValue) {
 						match = false
 					}
@@ -1143,7 +1128,6 @@ func (r *DynamoDBRepository[T]) DeleteAll(ids []string, partitionKey string) err
 		}
 	}
 
-	// Batch delete in chunks of 25
 	for i := 0; i < len(writeRequests); i += 25 {
 		end := i + 25
 		if end > len(writeRequests) {
@@ -1269,11 +1253,11 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String("id"), // Attribute for GSI
+				AttributeName: aws.String("id"),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String("createdAt"), // Attribute for GSI
+				AttributeName: aws.String("createdAt"),
 				AttributeType: types.ScalarAttributeTypeN,
 			},
 		},

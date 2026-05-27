@@ -2,7 +2,6 @@ package ginboot
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -17,7 +16,6 @@ import (
 	"github.com/cucumber/godog/colors"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type DBSeeder interface {
@@ -326,20 +324,6 @@ func (ts *TestSuite) parseDataTableToJSON(body *godog.Table) ([]byte, error) {
 type DBAdapter interface {
 	Insert(collection string, doc interface{}) error
 	Clear(collection string) error
-}
-
-// MongoAdapter is a DBAdapter for MongoDB.
-type MongoAdapter struct {
-	DB *mongo.Database
-}
-
-func (a *MongoAdapter) Insert(collection string, doc interface{}) error {
-	_, err := a.DB.Collection(collection).InsertOne(context.Background(), doc)
-	return err
-}
-
-func (a *MongoAdapter) Clear(collection string) error {
-	return a.DB.Collection(collection).Drop(context.Background())
 }
 
 // GenericDBSeeder is a sample DBSeeder that uses reflection to populate structs.

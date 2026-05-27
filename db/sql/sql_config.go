@@ -1,4 +1,4 @@
-package ginboot
+package sql
 
 import (
 	"database/sql"
