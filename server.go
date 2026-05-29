@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"log/slog"
 )
 
 type Runner func(engine *gin.Engine) error
@@ -16,11 +17,13 @@ type Server struct {
 	corsConfig  *cors.Config
 	basePath    string
 	fileService FileService
+	logger      Logger
 }
 
 func New() *Server {
 	return &Server{
 		engine: gin.Default(),
+		logger: NewSlogLogger(slog.Default()), // Set a default logger
 	}
 }
 
@@ -42,6 +45,11 @@ func (s *Server) startHTTP(port int) error {
 
 func (s *Server) SetRunner(runner Runner) {
 	s.runner = runner
+}
+
+func (s *Server) SetLogger(logger Logger) *Server {
+	s.logger = logger
+	return s
 }
 
 func (s *Server) SetBasePath(path string) *Server {

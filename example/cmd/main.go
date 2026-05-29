@@ -6,17 +6,37 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"github.com/klass-lk/ginboot"
 	dbMongo "github.com/klass-lk/ginboot/db/mongo"
 	"github.com/klass-lk/ginboot/example/internal/controller"
 	"github.com/klass-lk/ginboot/example/internal/model"
 	"github.com/klass-lk/ginboot/example/internal/service"
 	"github.com/klass-lk/ginboot/storage/s3"
+	"github.com/klass-lk/ginboot/telemetry"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
+	// Load environment variables from .env file if it exists
+	if err := godotenv.Load(); err != nil {
+		log.Printf("No .env file found or failed to load: %v", err)
+	}
+
+	// Initialize OpenTelemetry
+	// By default, this uses standard OTLP environment variables.
+	// You can configure Grafana Cloud endpoint via OTEL_EXPORTER_OTLP_ENDPOINT
+	shutdown, err := telemetry.Setup(context.Background(), "ginboot-example", "v1.0.0")
+	if err != nil {
+		log.Printf("Failed to setup telemetry: %v", err)
+	}
+	defer func() {
+		if shutdown != nil {
+			_ = shutdown(context.Background())
+		}
+	}()
+
 	// Initialize MongoDB client
 	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI("mongodb://localhost:27017"))
 	if err != nil {
@@ -30,8 +50,9 @@ func main() {
 	// Initialize services
 	postService := service.NewPostService(postRepo)
 
-	// Initialize server
+	// Initialize server with telemetry
 	server := ginboot.New()
+	telemetry.Instrument(server, "ginboot-example", nil)
 
 	// Set base path for all routes
 	server.SetBasePath("/api/v1")
