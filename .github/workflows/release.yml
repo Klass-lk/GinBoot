@@ -70,7 +70,8 @@ jobs:
           git tag "db/mongo/$NEW_TAG"
           git tag "db/sql/$NEW_TAG"
           git tag "db/dynamodb/$NEW_TAG"
-          git push origin "db/mongo/$NEW_TAG" "db/sql/$NEW_TAG" "db/dynamodb/$NEW_TAG"
+          git tag "storage/s3/$NEW_TAG"
+          git push origin "db/mongo/$NEW_TAG" "db/sql/$NEW_TAG" "db/dynamodb/$NEW_TAG" "storage/s3/$NEW_TAG"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
