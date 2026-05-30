@@ -1144,7 +1144,14 @@ func (r *DynamoDBRepository[T]) DeleteByFilters(filters map[string]interface{}, 
 func UnmarshalLegacyOrNative[T any](item map[string]types.AttributeValue, result *T) error {
 	if dataAttr, ok := item["data"]; ok {
 		if strVal, ok := dataAttr.(*types.AttributeValueMemberS); ok && strVal.Value != "" {
-			return json.Unmarshal([]byte(strVal.Value), result)
+			err := json.Unmarshal([]byte(strVal.Value), result)
+			if err == nil {
+				return nil
+			}
+			// If it fails to unmarshal as JSON, this might not be a legacy JSON blob!
+			// The entity itself might just have a string field named 'data'.
+			// We log a warning and fall back to native unmarshalling.
+			log.Printf("Warning: 'data' field present but not valid JSON (%v). Assuming it is a native attribute.", err)
 		}
 	}
 	return attributevalue.UnmarshalMap(item, result)
