@@ -565,11 +565,11 @@ func TestDynamoDBRepository_FindAll_SortsByCreatedAt(t *testing.T) {
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity1, partitionKey) // middle
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity2, partitionKey) // newest
 	assert.NoError(t, err)
@@ -596,11 +596,11 @@ func TestDynamoDBRepository_FindAllById_SortsByCreatedAt(t *testing.T) {
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity1, partitionKey) // middle
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity2, partitionKey) // newest
 	assert.NoError(t, err)
@@ -716,11 +716,11 @@ func TestDynamoDBRepository_FindAllPaginated_SortsByCreatedAt(t *testing.T) {
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity1, partitionKey) // middle
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity2, partitionKey) // newest
 	assert.NoError(t, err)
@@ -758,15 +758,15 @@ func TestDynamoDBRepository_FindByPaginated_SortsByCreatedAt(t *testing.T) {
 	// Save entities with a delay to ensure different creation timestamps
 	err := repo.Save(testEntity3, partitionKey) // oldest filtered
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity4, partitionKey) // ignored
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity1, partitionKey) // middle filtered
 	assert.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	err = repo.Save(testEntity2, partitionKey) // newest filtered
 	assert.NoError(t, err)
