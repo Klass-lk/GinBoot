@@ -19,6 +19,18 @@ type PageResponse[T interface{}] struct {
 	TotalElements    int         `json:"totalElements"`
 }
 
+type CursorPageRequest struct {
+	Size      int       `json:"size"`
+	NextToken string    `json:"nextToken"` // Base64 encoded JSON cursor token
+	Sort      SortField `json:"sort"`
+}
+
+type CursorPageResponse[T any] struct {
+	Contents  []T               `json:"content"`
+	NextToken string            `json:"nextToken"` // Empty if there are no more pages
+	Pageable  CursorPageRequest `json:"pageable"`
+}
+
 type TestEntity struct {
 	ID    string `ginboot:"id"`
 	Name  string
