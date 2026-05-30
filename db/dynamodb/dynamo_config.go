@@ -7,9 +7,16 @@ var (
 	dynamoConfig *DynamoDBConfig
 )
 
+type GSIConfig struct {
+	IndexName string
+	HashKey   string
+	SortKey   string
+}
+
 type DynamoDBConfig struct {
 	TableName         string
 	SkipTableCreation bool
+	GSIs              []GSIConfig
 }
 
 func NewDynamoDBConfig() *DynamoDBConfig {
@@ -28,3 +35,9 @@ func (c *DynamoDBConfig) WithSkipTableCreation(skip bool) *DynamoDBConfig {
 	c.SkipTableCreation = skip
 	return c
 }
+
+func (c *DynamoDBConfig) WithGSI(indexName, hashKey, sortKey string) *DynamoDBConfig {
+	c.GSIs = append(c.GSIs, GSIConfig{IndexName: indexName, HashKey: hashKey, SortKey: sortKey})
+	return c
+}
+

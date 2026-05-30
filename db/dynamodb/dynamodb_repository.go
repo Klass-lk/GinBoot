@@ -774,26 +774,112 @@ func (r *DynamoDBRepository[T]) EnableTTL(ctx context.Context) {
 }
 
 func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
-	input := &dynamodb.CreateTableInput{
-		TableName: aws.String(dynamoConfig.TableName),
-		AttributeDefinitions: []types.AttributeDefinition{
-			{
-				AttributeName: aws.String("pk"),
+	attrDefs := []types.AttributeDefinition{
+		{
+			AttributeName: aws.String("pk"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
+		{
+			AttributeName: aws.String("sk"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
+		{
+			AttributeName: aws.String("id"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
+		{
+			AttributeName: aws.String("createdAt"),
+			AttributeType: types.ScalarAttributeTypeN,
+		},
+	}
+
+	attrMap := map[string]bool{"pk": true, "sk": true, "id": true, "createdAt": true}
+	for _, gsi := range dynamoConfig.GSIs {
+		if !attrMap[gsi.HashKey] {
+			attrDefs = append(attrDefs, types.AttributeDefinition{
+				AttributeName: aws.String(gsi.HashKey),
 				AttributeType: types.ScalarAttributeTypeS,
-			},
-			{
-				AttributeName: aws.String("sk"),
+			})
+			attrMap[gsi.HashKey] = true
+		}
+		if gsi.SortKey != "" && !attrMap[gsi.SortKey] {
+			attrDefs = append(attrDefs, types.AttributeDefinition{
+				AttributeName: aws.String(gsi.SortKey),
 				AttributeType: types.ScalarAttributeTypeS,
+			})
+			attrMap[gsi.SortKey] = true
+		}
+	}
+
+	gsis := []types.GlobalSecondaryIndex{
+		{
+			IndexName: aws.String(EntityIdIndex),
+			KeySchema: []types.KeySchemaElement{
+				{
+					AttributeName: aws.String("id"),
+					KeyType:       types.KeyTypeHash,
+				},
 			},
-			{
-				AttributeName: aws.String("id"),
-				AttributeType: types.ScalarAttributeTypeS,
+			Projection: &types.Projection{
+				ProjectionType: types.ProjectionTypeAll,
 			},
-			{
-				AttributeName: aws.String("createdAt"),
-				AttributeType: types.ScalarAttributeTypeN,
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
 			},
 		},
+		{
+			IndexName: aws.String(PKCreatedAtSortIndex),
+			KeySchema: []types.KeySchemaElement{
+				{
+					AttributeName: aws.String("pk"),
+					KeyType:       types.KeyTypeHash,
+				},
+				{
+					AttributeName: aws.String("createdAt"),
+					KeyType:       types.KeyTypeRange,
+				},
+			},
+			Projection: &types.Projection{
+				ProjectionType: types.ProjectionTypeAll,
+			},
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
+			},
+		},
+	}
+
+	for _, gsi := range dynamoConfig.GSIs {
+		keySchema := []types.KeySchemaElement{
+			{
+				AttributeName: aws.String(gsi.HashKey),
+				KeyType:       types.KeyTypeHash,
+			},
+		}
+		if gsi.SortKey != "" {
+			keySchema = append(keySchema, types.KeySchemaElement{
+				AttributeName: aws.String(gsi.SortKey),
+				KeyType:       types.KeyTypeRange,
+			})
+		}
+
+		gsis = append(gsis, types.GlobalSecondaryIndex{
+			IndexName: aws.String(gsi.IndexName),
+			KeySchema: keySchema,
+			Projection: &types.Projection{
+				ProjectionType: types.ProjectionTypeAll,
+			},
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
+			},
+		})
+	}
+
+	input := &dynamodb.CreateTableInput{
+		TableName:              aws.String(dynamoConfig.TableName),
+		AttributeDefinitions:   attrDefs,
 		KeySchema: []types.KeySchemaElement{
 			{
 				AttributeName: aws.String("pk"),
@@ -804,44 +890,7 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 				KeyType:       types.KeyTypeRange,
 			},
 		},
-		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
-			{
-				IndexName: aws.String(EntityIdIndex),
-				KeySchema: []types.KeySchemaElement{
-					{
-						AttributeName: aws.String("id"),
-						KeyType:       types.KeyTypeHash,
-					},
-				},
-				Projection: &types.Projection{
-					ProjectionType: types.ProjectionTypeAll,
-				},
-				ProvisionedThroughput: &types.ProvisionedThroughput{
-					ReadCapacityUnits:  aws.Int64(5),
-					WriteCapacityUnits: aws.Int64(5),
-				},
-			},
-			{
-				IndexName: aws.String(PKCreatedAtSortIndex),
-				KeySchema: []types.KeySchemaElement{
-					{
-						AttributeName: aws.String("pk"),
-						KeyType:       types.KeyTypeHash,
-					},
-					{
-						AttributeName: aws.String("createdAt"),
-						KeyType:       types.KeyTypeRange,
-					},
-				},
-				Projection: &types.Projection{
-					ProjectionType: types.ProjectionTypeAll,
-				},
-				ProvisionedThroughput: &types.ProvisionedThroughput{
-					ReadCapacityUnits:  aws.Int64(5),
-					WriteCapacityUnits: aws.Int64(5),
-				},
-			},
-		},
+		GlobalSecondaryIndexes: gsis,
 		ProvisionedThroughput: &types.ProvisionedThroughput{
 			ReadCapacityUnits:  aws.Int64(5),
 			WriteCapacityUnits: aws.Int64(5),

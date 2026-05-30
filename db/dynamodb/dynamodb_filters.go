@@ -360,3 +360,91 @@ func (r *DynamoDBRepository[T]) DeleteByFilters(filters map[string]interface{}, 
 
 	return r.DeleteAll(ids, partitionKey)
 }
+
+// FindByIndex queries a specific Global Secondary Index directly without filtering on the primary key partition.
+func (r *DynamoDBRepository[T]) FindByIndex(indexName, hashKey string, hashValue interface{}) ([]T, error) {
+	return r.FindByIndexWithFilters(indexName, hashKey, hashValue, nil)
+}
+
+// FindByIndexWithFilters queries a Global Secondary Index and applies additional server-side filters.
+func (r *DynamoDBRepository[T]) FindByIndexWithFilters(indexName, hashKey string, hashValue interface{}, filters map[string]interface{}) ([]T, error) {
+	ctx := context.Background()
+	var items []T
+
+	exprVals := make(map[string]types.AttributeValue)
+	
+	var val interface{} = hashValue
+	if t, ok := val.(time.Time); ok {
+		val = t.Unix()
+	}
+
+	valAv, err := attributevalue.MarshalWithOptions(val, func(options *attributevalue.EncoderOptions) {
+		options.TagKey = "json"
+	})
+	if err != nil {
+		return nil, err
+	}
+	exprVals[":hashValue"] = valAv
+	keyConditionExpr := aws.String(fmt.Sprintf("%s = :hashValue", hashKey))
+
+	var filterExpr *string
+	var exprNames map[string]string
+	if len(filters) > 0 {
+		fExpr, vals, names, err := r.buildFilterExpression(filters)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range vals {
+			exprVals[k] = v
+		}
+		filterExpr = fExpr
+		exprNames = names
+	}
+
+	input := &dynamodb.QueryInput{
+		TableName:                 aws.String(dynamoConfig.TableName),
+		IndexName:                 aws.String(indexName),
+		KeyConditionExpression:    keyConditionExpr,
+		ExpressionAttributeValues: exprVals,
+	}
+
+	if filterExpr != nil {
+		input.FilterExpression = filterExpr
+		input.ExpressionAttributeNames = exprNames
+	}
+
+	for {
+		output, err := r.client.Query(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+
+		var pageItems []T
+		err = attributevalue.UnmarshalListOfMaps(output.Items, &pageItems)
+		if err != nil {
+			return nil, err
+		}
+
+		items = append(items, pageItems...)
+
+		if output.LastEvaluatedKey == nil {
+			break
+		}
+		input.ExclusiveStartKey = output.LastEvaluatedKey
+	}
+
+	return items, nil
+}
+
+// FindGlobalById fetches an entity directly by its ID regardless of its partition key using the EntityIdIndex.
+func (r *DynamoDBRepository[T]) FindGlobalById(id string) (T, error) {
+	var empty T
+	items, err := r.FindByIndex(EntityIdIndex, "id", id)
+	if err != nil {
+		return empty, err
+	}
+	if len(items) == 0 {
+		return empty, fmt.Errorf("item with id %s not found globally", id)
+	}
+	return items[0], nil
+}

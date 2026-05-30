@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -82,6 +83,15 @@ func main() {
 			// Inject required base attributes from the original item
 			for _, key := range []string{"pk", "sk", "id", "createdAt", "updatedAt", "version", "ttl"} {
 				if val, exists := item[key]; exists {
+					// Convert timestamps from milliseconds to seconds if needed (13 digits = ms)
+					if key == "createdAt" || key == "updatedAt" {
+						if nAttr, ok := val.(*types.AttributeValueMemberN); ok && len(nAttr.Value) >= 13 {
+							if ms, err := strconv.ParseInt(nAttr.Value, 10, 64); err == nil {
+								sec := ms / 1000
+								val = &types.AttributeValueMemberN{Value: strconv.FormatInt(sec, 10)}
+							}
+						}
+					}
 					nativeItem[key] = val
 				}
 			}
