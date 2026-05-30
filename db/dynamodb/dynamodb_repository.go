@@ -2,11 +2,13 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
 	"reflect"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -124,18 +126,16 @@ func (r *DynamoDBRepository[T]) GetClient() DynamoDBAPI {
 	return r.client
 }
 
-func (r *DynamoDBRepository[T]) findById(pk string, sk string) (DynamoDBItem, error) {
+func (r *DynamoDBRepository[T]) findById(pk string, sk string) (map[string]types.AttributeValue, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	var item DynamoDBItem
 
 	key, err := attributevalue.MarshalMap(map[string]string{
 		"pk": pk,
 		"sk": sk,
 	})
 	if err != nil {
-		return item, err
+		return nil, err
 	}
 
 	input := &dynamodb.GetItemInput{
@@ -145,15 +145,14 @@ func (r *DynamoDBRepository[T]) findById(pk string, sk string) (DynamoDBItem, er
 
 	output, err := r.client.GetItem(ctx, input)
 	if err != nil {
-		return item, err
+		return nil, err
 	}
 
 	if output.Item == nil {
-		return item, errors.New("item not found")
+		return nil, errors.New("item not found")
 	}
 
-	err = attributevalue.UnmarshalMap(output.Item, &item)
-	return item, err
+	return output.Item, nil
 }
 
 func (r *DynamoDBRepository[T]) FindById(entityId string, partitionKey string) (T, error) {
@@ -167,7 +166,7 @@ func (r *DynamoDBRepository[T]) FindById(entityId string, partitionKey string) (
 		return result, err
 	}
 
-	err = json.Unmarshal([]byte(item.Data), &result)
+	err = UnmarshalLegacyOrNative(item, &result)
 	return result, err
 }
 
@@ -208,29 +207,36 @@ func (r *DynamoDBRepository[T]) FindAllById(ids []string, partitionKey string) (
 		return nil, err
 	}
 
-	var dynamoDBItems []DynamoDBItem
+	type sortedItem struct {
+		CreatedAt int64
+		Result    T
+	}
+	var sortedItems []sortedItem
 	for _, item := range output.Responses[dynamoConfig.TableName] {
-		var dynamoDBItem DynamoDBItem
-		err = attributevalue.UnmarshalMap(item, &dynamoDBItem)
+		var result T
+		err = UnmarshalLegacyOrNative(item, &result)
 		if err != nil {
 			return nil, err
 		}
-		dynamoDBItems = append(dynamoDBItems, dynamoDBItem)
+		
+		var createdAt int64
+		if cAttr, ok := item["createdAt"].(*types.AttributeValueMemberN); ok {
+			createdAt, _ = strconv.ParseInt(cAttr.Value, 10, 64)
+		}
+		
+		sortedItems = append(sortedItems, sortedItem{
+			CreatedAt: createdAt,
+			Result:    result,
+		})
 	}
 
-	// Sort results by createdAt in descending order
-	sort.Slice(dynamoDBItems, func(i, j int) bool {
-		return dynamoDBItems[i].CreatedAt > dynamoDBItems[j].CreatedAt
+	sort.Slice(sortedItems, func(i, j int) bool {
+		return sortedItems[i].CreatedAt > sortedItems[j].CreatedAt
 	})
 
 	var results []T
-	for _, dynamoDBItem := range dynamoDBItems {
-		var result T
-		err = json.Unmarshal([]byte(dynamoDBItem.Data), &result)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result)
+	for _, si := range sortedItems {
+		results = append(results, si.Result)
 	}
 
 	return results, nil
@@ -240,7 +246,7 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	now := time.Now().UnixMilli()
+	now := time.Now().Unix()
 
 	pk := r.getPK(doc) + "#" + partitionKey // Composite PK
 	id, err := r.getGinbootId(doc)
@@ -257,37 +263,35 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	item, err := r.findById(pk, sk)
 	if err == nil {
 		// Item exists, get its version and createdAt
-		version = item.Version
-		createdAt = item.CreatedAt
+		if vAttr, ok := item["version"].(*types.AttributeValueMemberN); ok {
+			version, _ = strconv.ParseInt(vAttr.Value, 10, 64)
+		}
+		if cAttr, ok := item["createdAt"].(*types.AttributeValueMemberN); ok {
+			createdAt, _ = strconv.ParseInt(cAttr.Value, 10, 64)
+		}
 	}
 
-	data, err := json.Marshal(doc)
+	// Marshal doc natively
+	av, err := attributevalue.MarshalMap(doc)
 	if err != nil {
 		return err
 	}
-
-	newItem := DynamoDBItem{
-		PK:        pk,
-		SK:        sk,
-		ID:        id,
-		Data:      string(data),
-		CreatedAt: createdAt,
-		UpdatedAt: now,
-		Version:   version + 1,
+    
+    if createdAt == 0 {
+		createdAt = now
 	}
-
-	if r.ttl > 0 {
-		newItem.TTL = time.Now().Add(r.ttl).Unix()
-	}
-
-	if newItem.CreatedAt == 0 {
-		newItem.CreatedAt = now
-	}
-
-	av, err := attributevalue.MarshalMap(newItem)
-	if err != nil {
-		return err
-	}
+    newVersion := version + 1
+    
+    av["pk"] = &types.AttributeValueMemberS{Value: pk}
+    av["sk"] = &types.AttributeValueMemberS{Value: sk}
+    av["id"] = &types.AttributeValueMemberS{Value: id}
+    av["createdAt"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(createdAt, 10)}
+    av["updatedAt"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(now, 10)}
+    av["version"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(newVersion, 10)}
+    if r.ttl > 0 {
+        ttlVal := time.Now().Add(r.ttl).Unix()
+        av["ttl"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(ttlVal, 10)}
+    }
 
 	input := &dynamodb.PutItemInput{
 		TableName: aws.String(dynamoConfig.TableName),
@@ -323,36 +327,33 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 
 		item, err := r.findById(pk, sk)
 		if err == nil {
-			version = item.Version
-			createdAt = item.CreatedAt
+			if vAttr, ok := item["version"].(*types.AttributeValueMemberN); ok {
+				version, _ = strconv.ParseInt(vAttr.Value, 10, 64)
+			}
+			if cAttr, ok := item["createdAt"].(*types.AttributeValueMemberN); ok {
+				createdAt, _ = strconv.ParseInt(cAttr.Value, 10, 64)
+			}
 		}
 
-		data, err := json.Marshal(doc)
+		av, err := attributevalue.MarshalMap(doc)
 		if err != nil {
 			return err
 		}
-
-		newItem := DynamoDBItem{
-			PK:        pk,
-			SK:        sk,
-			ID:        id,
-			Data:      string(data),
-			CreatedAt: createdAt,
-			UpdatedAt: now,
-			Version:   version + 1,
+		
+		if createdAt == 0 {
+			createdAt = now
 		}
-
+		newVersion := version + 1
+		
+		av["pk"] = &types.AttributeValueMemberS{Value: pk}
+		av["sk"] = &types.AttributeValueMemberS{Value: sk}
+		av["id"] = &types.AttributeValueMemberS{Value: id}
+		av["createdAt"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(createdAt, 10)}
+		av["updatedAt"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(now, 10)}
+		av["version"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(newVersion, 10)}
 		if r.ttl > 0 {
-			newItem.TTL = time.Now().Add(r.ttl).Unix()
-		}
-
-		if newItem.CreatedAt == 0 {
-			newItem.CreatedAt = now
-		}
-
-		av, err := attributevalue.MarshalMap(newItem)
-		if err != nil {
-			return err
+			ttlVal := time.Now().Add(r.ttl).Unix()
+			av["ttl"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(ttlVal, 10)}
 		}
 
 		writeRequests[i] = types.WriteRequest{
@@ -411,290 +412,13 @@ func (r *DynamoDBRepository[T]) Delete(id string, partitionKey string) error {
 	return err
 }
 
-func (r *DynamoDBRepository[T]) FindOneBy(field string, value interface{}, partitionKey string) (T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
-	var result T
-	var entity T
-	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
-	input := &dynamodb.QueryInput{
-		TableName:              aws.String(dynamoConfig.TableName),
-		IndexName:              aws.String(PKCreatedAtSortIndex),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
-		},
-	}
 
-	for {
-		output, err := r.client.Query(ctx, input)
-		if err != nil {
-			return result, err
-		}
 
-		for _, item := range output.Items {
-			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return result, err
-			}
 
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return result, err
-			}
 
-			val := reflect.ValueOf(temp)
-			if val.Kind() == reflect.Ptr {
-				val = val.Elem()
-			}
 
-			fieldValue := val.FieldByName(field).Interface()
-			if fieldValue == value {
-				return temp, nil
-			}
-		}
-
-		if output.LastEvaluatedKey == nil {
-			break
-		}
-		input.ExclusiveStartKey = output.LastEvaluatedKey
-	}
-
-	return result, errors.New("item not found")
-}
-
-func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{}, partitionKey string) (T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	var result T
-	var entity T
-	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
-
-	input := &dynamodb.QueryInput{
-		TableName:              aws.String(dynamoConfig.TableName),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
-		},
-	}
-
-	for {
-		output, err := r.client.Query(ctx, input)
-		if err != nil {
-			return result, err
-		}
-
-		for _, item := range output.Items {
-			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return result, err
-			}
-
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return result, err
-			}
-
-			match := true
-			val := reflect.ValueOf(temp)
-			if val.Kind() == reflect.Ptr {
-				val = val.Elem()
-			}
-
-			for field, value := range filters {
-				fieldValue := val.FieldByName(field).Interface()
-				if fieldValue != value {
-					match = false
-					break
-				}
-			}
-
-			if match {
-				return temp, nil
-			}
-		}
-
-		if output.LastEvaluatedKey == nil {
-			break
-		}
-		input.ExclusiveStartKey = output.LastEvaluatedKey
-	}
-
-	return result, errors.New("item not found")
-}
-
-func (r *DynamoDBRepository[T]) FindBy(field string, value interface{}, partitionKey string) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	var results []T
-	var entity T
-	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
-
-	input := &dynamodb.QueryInput{
-		TableName:              aws.String(dynamoConfig.TableName),
-		IndexName:              aws.String(PKCreatedAtSortIndex),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
-		},
-		ScanIndexForward: aws.Bool(false),
-	}
-
-	for {
-		output, err := r.client.Query(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, item := range output.Items {
-			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return nil, err
-			}
-
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return nil, err
-			}
-
-			val := reflect.ValueOf(temp)
-			if val.Kind() == reflect.Ptr {
-				val = val.Elem()
-			}
-
-			fieldValue := val.FieldByName(field).Interface()
-
-			match := true
-			if opMap, ok := value.(map[string]interface{}); ok {
-				for op, opValue := range opMap {
-					switch op {
-					case "$gte":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
-							match = false
-						}
-					case "$lt":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-							match = false
-						}
-					default:
-						match = false
-					}
-				}
-			} else {
-				if !reflect.DeepEqual(fieldValue, value) {
-					match = false
-				}
-			}
-
-			if match {
-				results = append(results, temp)
-			}
-		}
-
-		if output.LastEvaluatedKey == nil {
-			break
-		}
-		input.ExclusiveStartKey = output.LastEvaluatedKey
-	}
-
-	return results, nil
-}
-
-func (r *DynamoDBRepository[T]) FindByFilters(filters map[string]interface{}, partitionKey string) ([]T, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	var results []T
-	var entity T
-	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
-
-	input := &dynamodb.QueryInput{
-		TableName:              aws.String(dynamoConfig.TableName),
-		IndexName:              aws.String(PKCreatedAtSortIndex),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
-		},
-		ScanIndexForward: aws.Bool(false),
-	}
-
-	for {
-		output, err := r.client.Query(ctx, input)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, item := range output.Items {
-			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return nil, err
-			}
-
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return nil, err
-			}
-
-			match := true
-			val := reflect.ValueOf(temp)
-			if val.Kind() == reflect.Ptr {
-				val = val.Elem()
-			}
-
-			for field, filterValue := range filters {
-				fieldValue := val.FieldByName(field).Interface()
-
-				if opMap, ok := filterValue.(map[string]interface{}); ok {
-					for op, opValue := range opMap {
-						switch op {
-						case "$gte":
-							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
-								match = false
-							}
-						case "$lt":
-							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-								match = false
-							}
-						default:
-							match = false
-						}
-					}
-				} else {
-					if !reflect.DeepEqual(fieldValue, filterValue) {
-						match = false
-					}
-				}
-
-				if !match {
-					break
-				}
-			}
-
-			if match {
-				results = append(results, temp)
-			}
-		}
-
-		if output.LastEvaluatedKey == nil {
-			break
-		}
-		input.ExclusiveStartKey = output.LastEvaluatedKey
-	}
-
-	return results, nil
-}
 
 func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -722,16 +446,10 @@ func (r *DynamoDBRepository[T]) FindAll(partitionKey string) ([]T, error) {
 
 		for _, item := range output.Items {
 			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return nil, err
-			}
-
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return nil, err
-			}
+			err = UnmarshalLegacyOrNative(item, &temp)
+				if err != nil {
+					return nil, err
+				}
 			results = append(results, temp)
 		}
 
@@ -770,16 +488,10 @@ func (r *DynamoDBRepository[T]) FindAllPaginated(pageRequest ginboot.PageRequest
 
 		for _, item := range output.Items {
 			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return ginboot.PageResponse[T]{}, err
-			}
-
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return ginboot.PageResponse[T]{}, err
-			}
+			err = UnmarshalLegacyOrNative(item, &temp)
+				if err != nil {
+					return ginboot.PageResponse[T]{}, err
+				}
 			results = append(results, temp)
 		}
 
@@ -856,16 +568,10 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest ginboot.PageRequest,
 
 		for _, item := range output.Items {
 			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return ginboot.PageResponse[T]{}, err
-			}
-
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return ginboot.PageResponse[T]{}, err
-			}
+			err = UnmarshalLegacyOrNative(item, &temp)
+				if err != nil {
+					return ginboot.PageResponse[T]{}, err
+				}
 
 			match := true
 			val := reflect.ValueOf(temp)
@@ -927,183 +633,13 @@ func (r *DynamoDBRepository[T]) FindByPaginated(pageRequest ginboot.PageRequest,
 	}, nil
 }
 
-func (r *DynamoDBRepository[T]) CountBy(field string, value interface{}, partitionKey string) (int64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
-	var entity T
-	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
 
-	input := &dynamodb.QueryInput{
-		TableName:              aws.String(dynamoConfig.TableName),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
-		},
-	}
 
-	var count int64
-	for {
-		output, err := r.client.Query(ctx, input)
-		if err != nil {
-			return 0, err
-		}
 
-		for _, item := range output.Items {
-			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return 0, err
-			}
 
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return 0, err
-			}
 
-			val := reflect.ValueOf(temp)
-			if val.Kind() == reflect.Ptr {
-				val = val.Elem()
-			}
 
-			fieldValue := val.FieldByName(field).Interface()
-
-			match := true
-			if opMap, ok := value.(map[string]interface{}); ok {
-				for op, opValue := range opMap {
-					switch op {
-					case "$gte":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
-							match = false
-						}
-					case "$lt":
-						if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-							match = false
-						}
-					default:
-						match = false
-					}
-				}
-			} else {
-				if !reflect.DeepEqual(fieldValue, value) {
-					match = false
-				}
-			}
-
-			if match {
-				count++
-			}
-		}
-
-		if output.LastEvaluatedKey == nil {
-			break
-		}
-		input.ExclusiveStartKey = output.LastEvaluatedKey
-	}
-
-	return count, nil
-}
-
-func (r *DynamoDBRepository[T]) CountByFilters(filters map[string]interface{}, partitionKey string) (int64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	var entity T
-	pk := r.getPK(entity) + "#" + partitionKey // Composite PK
-
-	input := &dynamodb.QueryInput{
-		TableName:              aws.String(dynamoConfig.TableName),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
-		},
-	}
-
-	var count int64
-	for {
-		output, err := r.client.Query(ctx, input)
-		if err != nil {
-			return 0, err
-		}
-
-		for _, item := range output.Items {
-			var temp T
-			var tempItem DynamoDBItem
-			err = attributevalue.UnmarshalMap(item, &tempItem)
-			if err != nil {
-				return 0, err
-			}
-
-			err = json.Unmarshal([]byte(tempItem.Data), &temp)
-			if err != nil {
-				return 0, err
-			}
-
-			match := true
-			val := reflect.ValueOf(temp)
-			if val.Kind() == reflect.Ptr {
-				val = val.Elem()
-			}
-
-			for field, filterValue := range filters {
-				fieldValue := val.FieldByName(field).Interface()
-
-				if opMap, ok := filterValue.(map[string]interface{}); ok {
-					for op, opValue := range opMap {
-						switch op {
-						case "$gte":
-							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) >= (opValue.(time.Time)).UnixMilli()) {
-								match = false
-							}
-						case "$lt":
-							if !reflect.DeepEqual(fieldValue, opValue) && !((fieldValue.(int64)) < (opValue.(time.Time)).UnixMilli()) {
-								match = false
-							}
-						default:
-							match = false
-						}
-					}
-				} else {
-					if !reflect.DeepEqual(fieldValue, filterValue) {
-						match = false
-					}
-				}
-
-				if !match {
-					break
-				}
-			}
-
-			if match {
-				count++
-			}
-		}
-
-		if output.LastEvaluatedKey == nil {
-			break
-		}
-		input.ExclusiveStartKey = output.LastEvaluatedKey
-	}
-
-	return count, nil
-}
-
-func (r *DynamoDBRepository[T]) ExistsBy(field string, value interface{}, partitionKey string) (bool, error) {
-	count, err := r.CountBy(field, value, partitionKey)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-func (r *DynamoDBRepository[T]) ExistsByFilters(filters map[string]interface{}, partitionKey string) (bool, error) {
-	count, err := r.CountByFilters(filters, partitionKey)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
 
 func (r *DynamoDBRepository[T]) DeleteAll(ids []string, partitionKey string) error {
 	if len(ids) == 0 {
@@ -1148,48 +684,45 @@ func (r *DynamoDBRepository[T]) DeleteAll(ids []string, partitionKey string) err
 	return nil
 }
 
-func (r *DynamoDBRepository[T]) DeleteBy(field string, value interface{}, partitionKey string) error {
-	items, err := r.FindBy(field, value, partitionKey)
-	if err != nil {
-		return err
-	}
 
-	if len(items) == 0 {
-		return nil
-	}
 
-	ids := make([]string, len(items))
-	for i, item := range items {
-		id, err := r.getGinbootId(item)
-		if err != nil {
-			return err
+
+
+
+// UnmarshalLegacyOrNative handles backward compatibility for legacy JSON 'data' strings
+func UnmarshalLegacyOrNative[T any](item map[string]types.AttributeValue, result *T) error {
+	if dataAttr, ok := item["data"]; ok {
+		if strVal, ok := dataAttr.(*types.AttributeValueMemberS); ok && strVal.Value != "" {
+			err := json.Unmarshal([]byte(strVal.Value), result)
+			if err == nil {
+				return nil
+			}
+			// If it fails to unmarshal as JSON, this might not be a legacy JSON blob!
+			// The entity itself might just have a string field named 'data'.
+			// We log a warning and fall back to native unmarshalling.
+			log.Printf("Warning: 'data' field present but not valid JSON (%v). Assuming it is a native attribute.", err)
 		}
-		ids[i] = id
 	}
-
-	return r.DeleteAll(ids, partitionKey)
+	return attributevalue.UnmarshalMap(item, result)
 }
 
-func (r *DynamoDBRepository[T]) DeleteByFilters(filters map[string]interface{}, partitionKey string) error {
-	items, err := r.FindByFilters(filters, partitionKey)
-	if err != nil {
-		return err
+func getDynamoDBAttributeName[T any](goFieldName string) string {
+	var entity T
+	val := reflect.ValueOf(entity)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
 	}
-
-	if len(items) == 0 {
-		return nil
-	}
-
-	ids := make([]string, len(items))
-	for i, item := range items {
-		id, err := r.getGinbootId(item)
-		if err != nil {
-			return err
+	typ := val.Type()
+	
+	if field, ok := typ.FieldByName(goFieldName); ok {
+		if tag, ok := field.Tag.Lookup("dynamodbav"); ok {
+			return tag
 		}
-		ids[i] = id
+		if tag, ok := field.Tag.Lookup("json"); ok {
+			return tag
+		}
 	}
-
-	return r.DeleteAll(ids, partitionKey)
+	return goFieldName
 }
 
 func (r *DynamoDBRepository[T]) getPK(entity T) string {
@@ -1241,26 +774,112 @@ func (r *DynamoDBRepository[T]) EnableTTL(ctx context.Context) {
 }
 
 func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
-	input := &dynamodb.CreateTableInput{
-		TableName: aws.String(dynamoConfig.TableName),
-		AttributeDefinitions: []types.AttributeDefinition{
-			{
-				AttributeName: aws.String("pk"),
+	attrDefs := []types.AttributeDefinition{
+		{
+			AttributeName: aws.String("pk"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
+		{
+			AttributeName: aws.String("sk"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
+		{
+			AttributeName: aws.String("id"),
+			AttributeType: types.ScalarAttributeTypeS,
+		},
+		{
+			AttributeName: aws.String("createdAt"),
+			AttributeType: types.ScalarAttributeTypeN,
+		},
+	}
+
+	attrMap := map[string]bool{"pk": true, "sk": true, "id": true, "createdAt": true}
+	for _, gsi := range dynamoConfig.GSIs {
+		if !attrMap[gsi.HashKey] {
+			attrDefs = append(attrDefs, types.AttributeDefinition{
+				AttributeName: aws.String(gsi.HashKey),
 				AttributeType: types.ScalarAttributeTypeS,
-			},
-			{
-				AttributeName: aws.String("sk"),
+			})
+			attrMap[gsi.HashKey] = true
+		}
+		if gsi.SortKey != "" && !attrMap[gsi.SortKey] {
+			attrDefs = append(attrDefs, types.AttributeDefinition{
+				AttributeName: aws.String(gsi.SortKey),
 				AttributeType: types.ScalarAttributeTypeS,
+			})
+			attrMap[gsi.SortKey] = true
+		}
+	}
+
+	gsis := []types.GlobalSecondaryIndex{
+		{
+			IndexName: aws.String(EntityIdIndex),
+			KeySchema: []types.KeySchemaElement{
+				{
+					AttributeName: aws.String("id"),
+					KeyType:       types.KeyTypeHash,
+				},
 			},
-			{
-				AttributeName: aws.String("id"),
-				AttributeType: types.ScalarAttributeTypeS,
+			Projection: &types.Projection{
+				ProjectionType: types.ProjectionTypeAll,
 			},
-			{
-				AttributeName: aws.String("createdAt"),
-				AttributeType: types.ScalarAttributeTypeN,
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
 			},
 		},
+		{
+			IndexName: aws.String(PKCreatedAtSortIndex),
+			KeySchema: []types.KeySchemaElement{
+				{
+					AttributeName: aws.String("pk"),
+					KeyType:       types.KeyTypeHash,
+				},
+				{
+					AttributeName: aws.String("createdAt"),
+					KeyType:       types.KeyTypeRange,
+				},
+			},
+			Projection: &types.Projection{
+				ProjectionType: types.ProjectionTypeAll,
+			},
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
+			},
+		},
+	}
+
+	for _, gsi := range dynamoConfig.GSIs {
+		keySchema := []types.KeySchemaElement{
+			{
+				AttributeName: aws.String(gsi.HashKey),
+				KeyType:       types.KeyTypeHash,
+			},
+		}
+		if gsi.SortKey != "" {
+			keySchema = append(keySchema, types.KeySchemaElement{
+				AttributeName: aws.String(gsi.SortKey),
+				KeyType:       types.KeyTypeRange,
+			})
+		}
+
+		gsis = append(gsis, types.GlobalSecondaryIndex{
+			IndexName: aws.String(gsi.IndexName),
+			KeySchema: keySchema,
+			Projection: &types.Projection{
+				ProjectionType: types.ProjectionTypeAll,
+			},
+			ProvisionedThroughput: &types.ProvisionedThroughput{
+				ReadCapacityUnits:  aws.Int64(5),
+				WriteCapacityUnits: aws.Int64(5),
+			},
+		})
+	}
+
+	input := &dynamodb.CreateTableInput{
+		TableName:              aws.String(dynamoConfig.TableName),
+		AttributeDefinitions:   attrDefs,
 		KeySchema: []types.KeySchemaElement{
 			{
 				AttributeName: aws.String("pk"),
@@ -1271,44 +890,7 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 				KeyType:       types.KeyTypeRange,
 			},
 		},
-		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
-			{
-				IndexName: aws.String(EntityIdIndex),
-				KeySchema: []types.KeySchemaElement{
-					{
-						AttributeName: aws.String("id"),
-						KeyType:       types.KeyTypeHash,
-					},
-				},
-				Projection: &types.Projection{
-					ProjectionType: types.ProjectionTypeAll,
-				},
-				ProvisionedThroughput: &types.ProvisionedThroughput{
-					ReadCapacityUnits:  aws.Int64(5),
-					WriteCapacityUnits: aws.Int64(5),
-				},
-			},
-			{
-				IndexName: aws.String(PKCreatedAtSortIndex),
-				KeySchema: []types.KeySchemaElement{
-					{
-						AttributeName: aws.String("pk"),
-						KeyType:       types.KeyTypeHash,
-					},
-					{
-						AttributeName: aws.String("createdAt"),
-						KeyType:       types.KeyTypeRange,
-					},
-				},
-				Projection: &types.Projection{
-					ProjectionType: types.ProjectionTypeAll,
-				},
-				ProvisionedThroughput: &types.ProvisionedThroughput{
-					ReadCapacityUnits:  aws.Int64(5),
-					WriteCapacityUnits: aws.Int64(5),
-				},
-			},
-		},
+		GlobalSecondaryIndexes: gsis,
 		ProvisionedThroughput: &types.ProvisionedThroughput{
 			ReadCapacityUnits:  aws.Int64(5),
 			WriteCapacityUnits: aws.Int64(5),
@@ -1317,4 +899,91 @@ func (r *DynamoDBRepository[T]) CreateTable(ctx context.Context) error {
 
 	_, err := r.client.CreateTable(ctx, input)
 	return err
+}
+
+
+type cursorToken struct {
+	PK        string `json:"pk"`
+	CreatedAt int64  `json:"c"`
+	SK        string `json:"sk"`
+}
+
+func (r *DynamoDBRepository[T]) FindAllCursorPaginated(pageRequest ginboot.CursorPageRequest, partitionKey string) (ginboot.CursorPageResponse[T], error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var results []T
+	var entity T
+	pk := r.getPK(entity) + "#" + partitionKey
+
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(dynamoConfig.TableName),
+		IndexName:              aws.String(PKCreatedAtSortIndex),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: pk},
+		},
+		ScanIndexForward: aws.Bool(pageRequest.Sort.Direction == 1),
+	}
+
+	if pageRequest.Size > 0 {
+		input.Limit = aws.Int32(int32(pageRequest.Size))
+	} else {
+		input.Limit = aws.Int32(20)
+	}
+
+	if pageRequest.NextToken != "" {
+		decodedToken, err := base64.StdEncoding.DecodeString(pageRequest.NextToken)
+		if err != nil {
+			return ginboot.CursorPageResponse[T]{}, errors.New("invalid nextToken")
+		}
+		var token cursorToken
+		if err := json.Unmarshal(decodedToken, &token); err != nil {
+			return ginboot.CursorPageResponse[T]{}, errors.New("invalid nextToken payload")
+		}
+		
+		input.ExclusiveStartKey = map[string]types.AttributeValue{
+			"pk":        &types.AttributeValueMemberS{Value: token.PK},
+			"sk":        &types.AttributeValueMemberS{Value: token.SK},
+			"createdAt": &types.AttributeValueMemberN{Value: strconv.FormatInt(token.CreatedAt, 10)},
+		}
+	}
+
+	output, err := r.client.Query(ctx, input)
+	if err != nil {
+		return ginboot.CursorPageResponse[T]{}, err
+	}
+
+	for _, item := range output.Items {
+		var temp T
+		err = UnmarshalLegacyOrNative(item, &temp)
+		if err != nil {
+			return ginboot.CursorPageResponse[T]{}, err
+		}
+		results = append(results, temp)
+	}
+
+	var newNextToken string
+	if output.LastEvaluatedKey != nil {
+		var token cursorToken
+		
+		if pkAttr, ok := output.LastEvaluatedKey["pk"].(*types.AttributeValueMemberS); ok {
+			token.PK = pkAttr.Value
+		}
+		if skAttr, ok := output.LastEvaluatedKey["sk"].(*types.AttributeValueMemberS); ok {
+			token.SK = skAttr.Value
+		}
+		if cAttr, ok := output.LastEvaluatedKey["createdAt"].(*types.AttributeValueMemberN); ok {
+			token.CreatedAt, _ = strconv.ParseInt(cAttr.Value, 10, 64)
+		}
+		
+		b, _ := json.Marshal(token)
+		newNextToken = base64.StdEncoding.EncodeToString(b)
+	}
+
+	return ginboot.CursorPageResponse[T]{
+		Contents:  results,
+		NextToken: newNextToken,
+		Pageable:  pageRequest,
+	}, nil
 }

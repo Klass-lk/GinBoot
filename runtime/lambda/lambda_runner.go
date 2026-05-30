@@ -21,3 +21,17 @@ func NewRunner() ginboot.Runner {
 		return nil
 	}
 }
+
+// NewRunnerV2 creates a runner for AWS API Gateway HTTP APIs (Payload v2.0).
+func NewRunnerV2() ginboot.Runner {
+	return func(engine *gin.Engine) error {
+		ginLambda := ginadapter.NewV2(engine)
+
+		handler := func(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
+			return ginLambda.ProxyWithContext(ctx, req)
+		}
+
+		lambda.Start(handler)
+		return nil
+	}
+}

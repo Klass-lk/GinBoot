@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type AuthContext struct {
@@ -19,17 +21,28 @@ type AuthContext struct {
 type Context struct {
 	*gin.Context
 	fileService FileService
+	logger      Logger
 }
 
-func NewContext(c *gin.Context, fileService FileService) *Context {
+func NewContext(c *gin.Context, fileService FileService, logger Logger) *Context {
 	return &Context{
 		Context:     c,
 		fileService: fileService,
+		logger:      logger,
 	}
 }
 
 func (c *Context) GetFileService() FileService {
 	return c.fileService
+}
+
+// Logger returns a Logger bound to the current request context.
+func (c *Context) Logger() Logger {
+	if c.logger != nil {
+		return c.logger.WithContext(c.Request.Context())
+	}
+	// Fallback if no logger was registered
+	return NewSlogLogger(nil).WithContext(c.Request.Context())
 }
 
 // GetAuthContext returns the current auth context
@@ -91,7 +104,23 @@ func (c *Context) GetPageRequest() PageRequest {
 	return PageRequest{Page: int(page), Size: int(size), Sort: sort}
 }
 
+// Span returns the current OpenTelemetry span from the request context.
+func (c *Context) Span() trace.Span {
+	return trace.SpanFromContext(c.Request.Context())
+}
+
+// RecordError records an error on the current span and sets the span status to Error.
+func (c *Context) RecordError(err error) {
+	if err == nil {
+		return
+	}
+	span := c.Span()
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+}
+
 func (c *Context) SendError(err error) {
+	c.RecordError(err)
 	var customErr ApiError
 	if errors.As(err, &customErr) {
 		c.JSON(http.StatusBadRequest, gin.H{

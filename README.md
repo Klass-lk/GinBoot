@@ -57,6 +57,8 @@ These settings will be saved in `ginboot-app.yml` for future deployments.
 ## Features
 
 - **Database Operations**: Built-in multi-database support (MongoDB, SQL, DynamoDB) through a generic repository interface, enabling common CRUD operations with minimal code.
+- **Pluggable Telemetry**: Optional, lightweight OpenTelemetry plugin (`ginboot/telemetry`) to ship traces, metrics, and logs straight to Grafana (or any OTLP backend) without bloating the core framework.
+- **Context-Bound Logger**: A pluggable, context-aware logger (`ctx.Logger().Info(...)`) that automatically correlates logs with active distributed traces.
 - **API Request Handling**: Simplified API request and authentication context extraction.
 - **Error Handling**: Easily define and manage business errors.
 - **Password Encoding**: Inbuilt password hashing and matching utility for secure authentication.
@@ -70,6 +72,11 @@ To install GinBoot, add it to your project:
 go get github.com/klass-lk/ginboot
 ```
 
+To use the optional telemetry plugin:
+```bash
+go get github.com/klass-lk/ginboot/telemetry
+```
+
 ## Documentation
 
 For more detailed information on Ginboot's features and usage, refer to the following documentation:
@@ -81,6 +88,7 @@ For more detailed information on Ginboot's features and usage, refer to the foll
 *   [Deployment to AWS Lambda using SAM](docs/deployment.md)
 *   [Testing](docs/testing.md)
 *   [Caching Support](docs/caching.md)
+*   [Telemetry & Observability](docs/telemetry.md)
 
 ## Contributing
 Contributions are welcome! Please read our contributing guidelines for more details.

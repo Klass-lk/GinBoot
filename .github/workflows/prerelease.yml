@@ -1,10 +1,10 @@
-name: Release
+name: Pre-Release
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - develop
 
 jobs:
   test:
@@ -32,7 +32,7 @@ jobs:
         run: go test -v -race ./...
 
   release:
-    name: Create Release
+    name: Create Pre-Release
     needs: test
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'skip ci')"
@@ -44,21 +44,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get latest tag
-        id: get_latest_tag
-        run: |
-          git fetch --tags
-          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1` 2>/dev/null || echo "v0.0.0")
-          echo "LATEST_TAG=$latest_tag" >> $GITHUB_ENV
-
       - name: Bump version and push tag
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: patch
-          default_prerelease_bump: patch
-          release_branches: main
+          default_bump: prerelease
+          pre_release_branches: develop
+          append_to_pre_release_tag: rc
           tag_prefix: v
 
       - name: Tag and push submodules
@@ -75,16 +68,16 @@ jobs:
           git tag "telemetry/$NEW_TAG"
           git push origin "db/mongo/$NEW_TAG" "db/sql/$NEW_TAG" "db/dynamodb/$NEW_TAG" "storage/s3/$NEW_TAG" "runtime/lambda/$NEW_TAG" "telemetry/$NEW_TAG"
 
-      - name: Create Release
+      - name: Create Pre-Release
         uses: softprops/action-gh-release@v1
-        if: steps.tag_version.outputs.new_tag != steps.get_latest_tag.outputs.LATEST_TAG
+        if: steps.tag_version.outputs.new_tag != ''
         with:
           tag_name: ${{ steps.tag_version.outputs.new_tag }}
-          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          name: Pre-Release ${{ steps.tag_version.outputs.new_tag }}
           body: |
-            ## What's Changed
+            ## Development Build (Release Candidate)
             ${{ steps.tag_version.outputs.changelog }}
           draft: false
-          prerelease: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

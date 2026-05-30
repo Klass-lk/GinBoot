@@ -1,13 +1,12 @@
-go 1.25.0
-
-toolchain go1.24.4
+go 1.26.3
 
 use (
 	.
-	db/mongo
+	./telemetry
 	db/dynamodb
+	db/mongo
 	db/sql
-	storage/s3
-	runtime/lambda
 	example
+	runtime/lambda
+	storage/s3
 )
