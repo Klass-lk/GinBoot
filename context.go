@@ -66,7 +66,10 @@ func (c *Context) GetAuthContext() (AuthContext, error) {
 func (c *Context) GetRequest(request interface{}) error {
 	if err := c.ShouldBind(request); err != nil {
 		c.AbortWithStatus(http.StatusBadRequest)
-		return errors.New("bad request: " + err.Error())
+		return ApiError{
+			ErrorCode: "BAD_REQUEST",
+			Message:   "bad request: " + err.Error(),
+		}
 	}
 	return nil
 }
