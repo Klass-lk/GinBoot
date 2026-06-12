@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -33,13 +34,19 @@ func MetricsMiddleware(meter metric.Meter) gin.HandlerFunc {
 
 		duration := time.Since(start).Seconds()
 		status := c.Writer.Status()
+		route := c.FullPath()
+		if route == "" {
+			route = "unknown"
+		}
 
-		// Optional: add tags for route, method, status
-		// Here we keep it simple for illustration.
-		requestDuration.Record(c.Request.Context(), duration)
-		requestCount.Add(c.Request.Context(), 1)
+		attrs := metric.WithAttributes(
+			attribute.String("http.method", c.Request.Method),
+			attribute.String("http.route", route),
+			attribute.Int("http.status_code", status),
+		)
 
-		_ = status // to avoid unused variable if we don't add attributes
+		requestDuration.Record(c.Request.Context(), duration, attrs)
+		requestCount.Add(c.Request.Context(), 1, attrs)
 	}
 }
 

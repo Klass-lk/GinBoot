@@ -10,6 +10,7 @@ import (
 	"github.com/klass-lk/ginboot"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -94,6 +95,11 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 		log.WithProcessor(log.NewBatchProcessor(logExporter)),
 	)
 	global.SetLoggerProvider(loggerProvider)
+
+	// Start collecting Go runtime metrics
+	if err := runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second * 15)); err != nil {
+		fmt.Printf("[OpenTelemetry Error] failed to start runtime metrics: %v\n", err)
+	}
 
 	// Return a shutdown function
 	return func(shutdownCtx context.Context) error {
