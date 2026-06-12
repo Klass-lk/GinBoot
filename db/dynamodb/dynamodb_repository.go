@@ -272,7 +272,9 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	}
 
 	// Marshal doc natively
-	av, err := attributevalue.MarshalMap(doc)
+	av, err := attributevalue.MarshalMapWithOptions(doc, func(options *attributevalue.EncoderOptions) {
+		options.TagKey = "json"
+	})
 	if err != nil {
 		return err
 	}
@@ -335,7 +337,9 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 			}
 		}
 
-		av, err := attributevalue.MarshalMap(doc)
+		av, err := attributevalue.MarshalMapWithOptions(doc, func(options *attributevalue.EncoderOptions) {
+			options.TagKey = "json"
+		})
 		if err != nil {
 			return err
 		}
