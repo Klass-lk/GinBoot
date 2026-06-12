@@ -132,12 +132,13 @@ func (r *DynamoDBRepository[T]) FindOneByFilters(filters map[string]interface{},
 		KeyConditionExpression:    aws.String("pk = :pk"),
 		ExpressionAttributeValues: exprVals,
 		ScanIndexForward:          aws.Bool(false),
-		Limit:                     aws.Int32(1),
 	}
 
 	if filterExpr != nil {
 		input.FilterExpression = filterExpr
 		input.ExpressionAttributeNames = exprNames
+	} else {
+		input.Limit = aws.Int32(1)
 	}
 
 	for {
@@ -308,12 +309,13 @@ func (r *DynamoDBRepository[T]) ExistsByFilters(filters map[string]interface{}, 
 		KeyConditionExpression:    aws.String("pk = :pk"),
 		ExpressionAttributeValues: exprVals,
 		Select:                    types.SelectCount,
-		Limit:                     aws.Int32(1),
 	}
 
 	if filterExpr != nil {
 		input.FilterExpression = filterExpr
 		input.ExpressionAttributeNames = exprNames
+	} else {
+		input.Limit = aws.Int32(1)
 	}
 
 	for {

@@ -246,7 +246,7 @@ func (r *DynamoDBRepository[T]) Save(doc T, partitionKey string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	now := time.Now().UnixMilli()
+	now := time.Now().Unix()
 
 	pk := r.getPK(doc) + "#" + partitionKey // Composite PK
 	id, err := r.getGinbootId(doc)
@@ -315,7 +315,7 @@ func (r *DynamoDBRepository[T]) SaveAll(docs []T, partitionKey string) error {
 
 	writeRequests := make([]types.WriteRequest, len(docs))
 	for i, doc := range docs {
-		now := time.Now().UnixMilli()
+		now := time.Now().Unix()
 
 		pk := r.getPK(doc) + "#" + partitionKey // Composite PK
 		id, err := r.getGinbootId(doc)
