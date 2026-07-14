@@ -70,6 +70,7 @@ jobs:
           git tag "db/mongo/$NEW_TAG"
           git tag "db/sql/$NEW_TAG"
           git tag "db/dynamodb/$NEW_TAG"
+          git tag "db/inmemory/$NEW_TAG"
           git tag "storage/s3/$NEW_TAG"
           git tag "runtime/lambda/$NEW_TAG"
           git tag "telemetry/$NEW_TAG"

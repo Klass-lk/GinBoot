@@ -4,16 +4,16 @@ import (
 	"time"
 
 	"github.com/klass-lk/ginboot"
-	dbMongo "github.com/klass-lk/ginboot/db/mongo"
+	memory "github.com/klass-lk/ginboot/db/inmemory"
 	"github.com/klass-lk/ginboot/example/internal/model"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type PostService struct {
-	postRepo *dbMongo.MongoRepository[model.Post]
+	postRepo *memory.InMemoryRepository[model.Post]
 }
 
-func NewPostService(postRepo *dbMongo.MongoRepository[model.Post]) *PostService {
+func NewPostService(postRepo *memory.InMemoryRepository[model.Post]) *PostService {
 	return &PostService{
 		postRepo: postRepo,
 	}

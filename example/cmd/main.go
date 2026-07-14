@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/klass-lk/ginboot"
+	memory "github.com/klass-lk/ginboot/db/inmemory"
 	dbMongo "github.com/klass-lk/ginboot/db/mongo"
 	"github.com/klass-lk/ginboot/example/internal/controller"
 	"github.com/klass-lk/ginboot/example/internal/model"
@@ -45,7 +46,7 @@ func main() {
 	defer client.Disconnect(context.TODO())
 
 	// Initialize repositories
-	postRepo := dbMongo.NewMongoRepository[model.Post](client.Database("example"), "posts")
+	postRepo := memory.NewInMemoryRepository[model.Post]()
 
 	// Initialize services
 	postService := service.NewPostService(postRepo)
