@@ -2,6 +2,7 @@ go 1.26.3
 
 use (
 	.
+	./db/inmemory
 	./telemetry
 	db/dynamodb
 	db/mongo
