@@ -67,7 +67,7 @@ jobs:
           git tag "storage/s3/$NEW_TAG"
           git tag "runtime/lambda/$NEW_TAG"
           git tag "telemetry/$NEW_TAG"
-          git push origin "db/mongo/$NEW_TAG" "db/sql/$NEW_TAG" "db/dynamodb/$NEW_TAG" "storage/s3/$NEW_TAG" "runtime/lambda/$NEW_TAG" "telemetry/$NEW_TAG"
+          git push origin "db/mongo/$NEW_TAG" "db/sql/$NEW_TAG" "db/dynamodb/$NEW_TAG" "db/inmemory/$NEW_TAG" "storage/s3/$NEW_TAG" "runtime/lambda/$NEW_TAG" "telemetry/$NEW_TAG"
 
       - name: Create Pre-Release
         uses: softprops/action-gh-release@v1
