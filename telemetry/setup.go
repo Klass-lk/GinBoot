@@ -64,11 +64,19 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 	}
 
-	bsp := trace.NewBatchSpanProcessor(traceExporter)
+	isLambda := os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
+
+	var spanProcessor trace.SpanProcessor
+	if isLambda {
+		spanProcessor = trace.NewSimpleSpanProcessor(traceExporter)
+	} else {
+		spanProcessor = trace.NewBatchSpanProcessor(traceExporter)
+	}
+
 	tracerProvider := trace.NewTracerProvider(
 		trace.WithSampler(trace.AlwaysSample()),
 		trace.WithResource(res),
-		trace.WithSpanProcessor(bsp),
+		trace.WithSpanProcessor(spanProcessor),
 	)
 	otel.SetTracerProvider(tracerProvider)
 
@@ -90,9 +98,16 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 		return nil, fmt.Errorf("failed to create log exporter: %w", err)
 	}
 
+	var logProcessor log.Processor
+	if isLambda {
+		logProcessor = log.NewSimpleProcessor(logExporter)
+	} else {
+		logProcessor = log.NewBatchProcessor(logExporter)
+	}
+
 	loggerProvider := log.NewLoggerProvider(
 		log.WithResource(res),
-		log.WithProcessor(log.NewBatchProcessor(logExporter)),
+		log.WithProcessor(logProcessor),
 	)
 	global.SetLoggerProvider(loggerProvider)
 
