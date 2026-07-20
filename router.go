@@ -136,6 +136,7 @@ func (s *Server) RegisterController(path string, controller Controller) {
 
 // Handle wraps gin handler to use custom context
 func (g *ControllerGroup) Handle(httpMethod, relativePath string, handler interface{}, middleware ...gin.HandlerFunc) {
+	registerOpenAPIRoute(httpMethod, path.Join(g.group.BasePath(), relativePath), reflect.TypeOf(handler))
 	wrappedHandler := wrapHandler(handler, g.fileService, g.logger)
 	handlers := append(middleware, wrappedHandler)
 	g.group.Handle(httpMethod, relativePath, handlers...)
