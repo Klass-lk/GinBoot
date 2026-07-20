@@ -5,10 +5,13 @@ import (
 	"os"
 	"time"
 
+	"log/slog"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"log/slog"
 )
+
+var osExit = os.Exit
 
 type Runner func(engine *gin.Engine) error
 
@@ -38,10 +41,12 @@ func (s *Server) Start(port int) error {
 		err := exportOpenAPISpec(exportPath)
 		if err != nil {
 			fmt.Printf("Failed to export OpenAPI spec: %v\n", err)
-			os.Exit(1)
+			osExit(1)
+			return err
 		}
 		fmt.Printf("Successfully exported OpenAPI spec to %s\n", exportPath)
-		os.Exit(0)
+		osExit(0)
+		return nil
 	}
 
 	if s.runner != nil {

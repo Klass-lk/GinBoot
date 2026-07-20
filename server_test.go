@@ -102,6 +102,42 @@ func TestServer_CustomRunner(t *testing.T) {
 	assert.True(t, runnerCalled)
 }
 
+func TestServer_StartWithSwaggerExport(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Create a temp file path for testing
+	tmpFile := "test_swagger.json"
+
+	// Set the environment variable
+	t.Setenv("GINBOOT_EXPORT_SWAGGER", tmpFile)
+
+	// Mock os.Exit
+	exitCalled := false
+	var exitCode int
+	originalOsExit := osExit
+	osExit = func(code int) {
+		exitCalled = true
+		exitCode = code
+	}
+	defer func() { osExit = originalOsExit }()
+
+	server := New()
+	server.Group("/api").GET("/test", func(c *Context) (string, error) {
+		return "test", nil
+	})
+
+	// Use a custom runner to prevent blocking
+	customRunner := func(engine *gin.Engine) error {
+		return nil
+	}
+	server.SetRunner(customRunner)
+
+	err := server.Start(8080)
+	assert.NoError(t, err)
+	assert.True(t, exitCalled)
+	assert.Equal(t, 0, exitCode)
+}
+
 func TestServer_CustomRunnerError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	server := New()
