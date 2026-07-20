@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -32,6 +33,17 @@ func (s *Server) Engine() *gin.Engine {
 }
 
 func (s *Server) Start(port int) error {
+	exportPath := os.Getenv("GINBOOT_EXPORT_SWAGGER")
+	if exportPath != "" {
+		err := exportOpenAPISpec(exportPath)
+		if err != nil {
+			fmt.Printf("Failed to export OpenAPI spec: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Successfully exported OpenAPI spec to %s\n", exportPath)
+		os.Exit(0)
+	}
+
 	if s.runner != nil {
 		return s.runner(s.engine)
 	}
