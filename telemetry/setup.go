@@ -173,15 +173,18 @@ func (m *multiHandler) WithGroup(name string) slog.Handler {
 	return &multiHandler{handlers: handlers}
 }
 
-// Instrument enables OpenTelemetry tracing, metrics, and structured logging for the server.
+// Instrument enables OpenTelemetry tracing, metrics, request IDs, and structured logging for the server.
 func Instrument(s *ginboot.Server, serviceName string, logger *slog.Logger) {
+	// Add Request ID middleware for X-Request-ID headers & OTel correlation
+	s.Engine().Use(RequestIDMiddleware())
+
 	// Add otelgin middleware for tracing
 	s.Engine().Use(otelgin.Middleware(serviceName))
 
 	// Add custom metrics middleware
 	s.Engine().Use(MetricsMiddleware(nil))
 
-	// Add logging middleware that extracts trace IDs
+	// Add logging middleware that extracts trace IDs and request IDs
 	if logger == nil {
 		// Log to both console and OpenTelemetry
 		consoleHandler := slog.NewTextHandler(os.Stdout, nil)

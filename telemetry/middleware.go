@@ -1,6 +1,9 @@
 package telemetry
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -10,6 +13,48 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
+
+func generateReqID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("req_%s", hex.EncodeToString(b))
+}
+
+// RequestIDMiddleware attaches a unique X-Request-ID header to every request and response,
+// and records it as an attribute on the active OpenTelemetry span.
+func RequestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		reqID := c.GetHeader("X-Request-ID")
+		if reqID == "" {
+			reqID = c.GetHeader("x-request-id")
+		}
+
+		span := trace.SpanFromContext(c.Request.Context())
+		spanCtx := span.SpanContext()
+
+		if reqID == "" && spanCtx.HasTraceID() {
+			reqID = spanCtx.TraceID().String()
+		}
+
+		if reqID == "" {
+			reqID = generateReqID()
+		}
+
+		// Set response header
+		c.Writer.Header().Set("X-Request-ID", reqID)
+		c.Set("request_id", reqID)
+
+		// Record attribute on active span if recording
+		if span.IsRecording() {
+			span.SetAttributes(
+				attribute.String("http.request_id", reqID),
+				attribute.String("x-request-id", reqID),
+			)
+		}
+
+		c.Next()
+	}
+}
 
 // MetricsMiddleware records standard HTTP metrics.
 func MetricsMiddleware(meter metric.Meter) gin.HandlerFunc {
@@ -50,7 +95,7 @@ func MetricsMiddleware(meter metric.Meter) gin.HandlerFunc {
 	}
 }
 
-// LoggingMiddleware logs requests using slog, automatically extracting trace_id and span_id.
+// LoggingMiddleware logs requests using slog, automatically extracting trace_id, span_id, and request_id.
 func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -76,12 +121,16 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		status := c.Writer.Status()
 		method := c.Request.Method
 
+		reqID, _ := c.Get("request_id")
+		reqIDStr, _ := reqID.(string)
+
 		logger.Info("HTTP Request",
 			slog.Int("status", status),
 			slog.String("method", method),
 			slog.String("path", path),
 			slog.String("query", query),
 			slog.Duration("latency", latency),
+			slog.String("request_id", reqIDStr),
 			slog.String("trace_id", traceID),
 			slog.String("span_id", spanID),
 		)
