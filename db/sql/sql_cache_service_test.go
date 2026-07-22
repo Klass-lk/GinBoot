@@ -2,20 +2,18 @@ package sql
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/klass-lk/ginboot"
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
-	tcpg "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 var (
-	testSQLCacheDB      *sql.DB
+	testSQLCacheDB      *gorm.DB
 	testSQLCacheRepo    *SQLRepository[ginboot.CacheEntry]
 	testSQLTagRepo      *SQLRepository[ginboot.TagEntry]
 	testSQLCacheService *SQLCacheService
@@ -24,39 +22,10 @@ var (
 
 func setupSQLCache(t *testing.T) (*SQLCacheService, func()) {
 	onceSQLCache.Do(func() {
-		ctx := context.Background()
-
-		pgContainer, err := tcpg.Run(ctx,
-			"postgres:13-alpine",
-			tcpg.WithDatabase("testdb"),
-			tcpg.WithUsername("postgres"),
-			tcpg.WithPassword("password"),
-		)
+		var err error
+		testSQLCacheDB, err = gorm.Open(sqlite.Open("file::memory_cache_service:?cache=shared"), &gorm.Config{})
 		if err != nil {
-			panic(fmt.Sprintf("Failed to start PostgreSQL container: %v", err))
-		}
-
-		connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-		if err != nil {
-			panic(fmt.Sprintf("Failed to get PostgreSQL connection string: %v", err))
-		}
-
-		testSQLCacheDB, err = sql.Open("postgres", connStr)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to connect to PostgreSQL: %v", err))
-		}
-
-		// Wait for DB
-		maxRetries := 5
-		for i := 0; i < maxRetries; i++ {
-			err = testSQLCacheDB.Ping()
-			if err == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-		if err != nil {
-			panic(fmt.Sprintf("Failed to ping PostgreSQL: %v", err))
+			panic(err)
 		}
 
 		testSQLCacheRepo = NewSQLRepository[ginboot.CacheEntry](testSQLCacheDB)
@@ -65,19 +34,15 @@ func setupSQLCache(t *testing.T) (*SQLCacheService, func()) {
 		testSQLCacheService = NewSQLCacheService(testSQLCacheRepo, testSQLTagRepo)
 	})
 
-	// Truncate tables
 	if testSQLCacheDB != nil {
-		_, _ = testSQLCacheDB.Exec("TRUNCATE TABLE cache_entries")
-		_, _ = testSQLCacheDB.Exec("TRUNCATE TABLE cache_tags")
+		_ = testSQLCacheRepo.DeleteAll()
+		_ = testSQLTagRepo.DeleteAll()
 	}
 
 	return testSQLCacheService, func() {}
 }
 
 func TestSQLCacheService_SetAndGet(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
 	service, teardown := setupSQLCache(t)
 	defer teardown()
 
@@ -95,9 +60,6 @@ func TestSQLCacheService_SetAndGet(t *testing.T) {
 }
 
 func TestSQLCacheService_GetMiss(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
 	service, teardown := setupSQLCache(t)
 	defer teardown()
 
@@ -108,9 +70,6 @@ func TestSQLCacheService_GetMiss(t *testing.T) {
 }
 
 func TestSQLCacheService_Invalidate(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
 	service, teardown := setupSQLCache(t)
 	defer teardown()
 

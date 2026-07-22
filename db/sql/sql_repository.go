@@ -1,32 +1,39 @@
 package sql
 
 import (
-	"database/sql"
 	"fmt"
-	"reflect"
-	"strings"
 
 	"github.com/klass-lk/ginboot"
+	"gorm.io/gorm"
 )
 
-type SQLRepository[T ginboot.Document] struct {
-	db        *sql.DB
+type SQLRepository[T any] struct {
+	db        *gorm.DB
 	tableName string
 }
 
-func NewSQLRepository[T ginboot.Document](db *sql.DB) *SQLRepository[T] {
-	var doc T
-	return &SQLRepository[T]{
-		db:        db,
-		tableName: doc.GetTableName(),
+func NewSQLRepository[T any](db *gorm.DB) *SQLRepository[T] {
+	repo := &SQLRepository[T]{
+		db: db,
 	}
+	var doc T
+	if d, ok := any(doc).(ginboot.Document); ok {
+		repo.tableName = d.GetTableName()
+	}
+	return repo
+}
+
+func (r *SQLRepository[T]) scopedDB() *gorm.DB {
+	if r.tableName != "" {
+		return r.db.Table(r.tableName)
+	}
+	var entity T
+	return r.db.Model(&entity)
 }
 
 func (r *SQLRepository[T]) FindById(id string) (T, error) {
 	var result T
-	query := fmt.Sprintf("SELECT * FROM %s WHERE id = $1", r.tableName)
-	row := r.db.QueryRow(query, id)
-	err := r.scanRow(row, &result)
+	err := r.scopedDB().Where("id = ?", id).First(&result).Error
 	return result, err
 }
 
@@ -34,265 +41,166 @@ func (r *SQLRepository[T]) FindAllById(ids []string) ([]T, error) {
 	if len(ids) == 0 {
 		return []T{}, nil
 	}
-
 	var results []T
-	placeholders := make([]string, len(ids))
-	args := make([]interface{}, len(ids))
-	for i, id := range ids {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = id
-	}
-
-	query := fmt.Sprintf("SELECT * FROM %s WHERE id IN (%s)",
-		r.tableName, strings.Join(placeholders, ","))
-
-	rows, err := r.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	results, err = r.scanRows(rows)
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	err := r.scopedDB().Where("id IN ?", ids).Find(&results).Error
+	return results, err
 }
 
 func (r *SQLRepository[T]) Save(doc T) error {
-	fields, values := r.extractFieldsAndValues(doc)
-	placeholders := make([]string, len(values))
-	for i := range values {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-	}
-
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		r.tableName,
-		strings.Join(fields, ","),
-		strings.Join(placeholders, ","))
-
-	_, err := r.db.Exec(query, values...)
-	return err
+	return r.scopedDB().Create(&doc).Error
 }
 
 func (r *SQLRepository[T]) SaveOrUpdate(doc T) error {
-	fields, values := r.extractFieldsAndValues(doc)
-	placeholders := make([]string, len(values))
-	updates := make([]string, len(fields))
-
-	for i := range values {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		updates[i] = fmt.Sprintf("%s = $%d", fields[i], i+1)
-	}
-
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (id) DO UPDATE SET %s",
-		r.tableName,
-		strings.Join(fields, ","),
-		strings.Join(placeholders, ","),
-		strings.Join(updates, ","))
-
-	_, err := r.db.Exec(query, values...)
-	return err
+	return r.scopedDB().Save(&doc).Error
 }
 
 func (r *SQLRepository[T]) SaveAll(docs []T) error {
 	if len(docs) == 0 {
 		return nil
 	}
-
-	tx, err := r.db.Begin()
-	if err != nil {
-		return err
-	}
-
-	for _, doc := range docs {
-		if err := r.Save(doc); err != nil {
-			tx.Rollback()
-			return err
-		}
-	}
-
-	return tx.Commit()
+	return r.scopedDB().Create(&docs).Error
 }
 
 func (r *SQLRepository[T]) Update(doc T) error {
-	fields, values := r.extractFieldsAndValues(doc)
-
-	var idValue interface{}
-	var updateFields []string
-	var updateValues []interface{}
-
-	for i := 0; i < len(fields); i++ {
-		if fields[i] == "id" {
-			idValue = values[i]
-			continue
-		}
-		updateFields = append(updateFields, fmt.Sprintf("%s = $%d", fields[i], len(updateValues)+1))
-		updateValues = append(updateValues, values[i])
-	}
-
-	if idValue == nil {
-		return fmt.Errorf("document must have an 'id' field for update operation")
-	}
-
-	query := fmt.Sprintf("UPDATE %s SET %s WHERE id = $%d",
-		r.tableName,
-		strings.Join(updateFields, ","),
-		len(updateValues)+1)
-
-	updateValues = append(updateValues, idValue)
-
-	_, err := r.db.Exec(query, updateValues...)
-	return err
+	return r.scopedDB().Save(&doc).Error
 }
 
 func (r *SQLRepository[T]) Delete(id string) error {
-	query := fmt.Sprintf("DELETE FROM %s WHERE id = $1", r.tableName)
-	_, err := r.db.Exec(query, id)
-	return err
+	var entity T
+	return r.scopedDB().Where("id = ?", id).Delete(&entity).Error
 }
 
 func (r *SQLRepository[T]) FindOneBy(field string, value interface{}) (T, error) {
 	var result T
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s = $1", r.tableName, field)
-	row := r.db.QueryRow(query, value)
-	err := r.scanRow(row, &result)
+	err := r.scopedDB().Where(fmt.Sprintf("%s = ?", field), value).First(&result).Error
 	return result, err
 }
 
 func (r *SQLRepository[T]) FindOneByFilters(filters map[string]interface{}) (T, error) {
 	var result T
-	conditions, values := r.buildWhereClause(filters)
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", r.tableName, conditions)
-	row := r.db.QueryRow(query, values...)
-	err := r.scanRow(row, &result)
+	err := r.scopedDB().Where(filters).First(&result).Error
 	return result, err
 }
 
 func (r *SQLRepository[T]) FindBy(field string, value interface{}) ([]T, error) {
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s = $1", r.tableName, field)
-	rows, err := r.db.Query(query, value)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var results []T
-	results, err = r.scanRows(rows)
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	return results, nil
+	err := r.scopedDB().Where(fmt.Sprintf("%s = ?", field), value).Find(&results).Error
+	return results, err
 }
 
 func (r *SQLRepository[T]) FindByFilters(filters map[string]interface{}) ([]T, error) {
-	conditions, values := r.buildWhereClause(filters)
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", r.tableName, conditions)
-	rows, err := r.db.Query(query, values...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var results []T
-	results, err = r.scanRows(rows)
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	return results, nil
+	err := r.scopedDB().Where(filters).Find(&results).Error
+	return results, err
 }
 
 func (r *SQLRepository[T]) FindAll(options ...interface{}) ([]T, error) {
-	query := fmt.Sprintf("SELECT * FROM %s", r.tableName)
-	rows, err := r.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var results []T
-	results, err = r.scanRows(rows)
-	if err = rows.Err(); err != nil {
-		return nil, err
+	tx := r.scopedDB()
+	for _, opt := range options {
+		tx = tx.Where(opt)
 	}
-	return results, nil
+	err := tx.Find(&results).Error
+	return results, err
 }
 
 func (r *SQLRepository[T]) FindAllPaginated(pageRequest ginboot.PageRequest) (ginboot.PageResponse[T], error) {
-	offset := (pageRequest.Page - 1) * pageRequest.Size
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT $1 OFFSET $2", r.tableName)
-
-	rows, err := r.db.Query(query, pageRequest.Size, offset)
-	if err != nil {
-		return ginboot.PageResponse[T]{}, err
-	}
-	defer rows.Close()
-
 	var results []T
-	results, err = r.scanRows(rows)
-	if err = rows.Err(); err != nil {
+	var total int64
+
+	page := pageRequest.Page
+	if page < 1 {
+		page = 1
+	}
+	size := pageRequest.Size
+	if size <= 0 {
+		size = 10
+	}
+	offset := (page - 1) * size
+
+	tx := r.scopedDB()
+	var entity T
+	if err := tx.Model(&entity).Count(&total).Error; err != nil {
 		return ginboot.PageResponse[T]{}, err
 	}
 
-	var total int
-	err = r.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", r.tableName)).Scan(&total)
-	if err != nil {
+	if pageRequest.Sort.Field != "" {
+		dir := "ASC"
+		if pageRequest.Sort.Direction < 0 {
+			dir = "DESC"
+		}
+		tx = tx.Order(fmt.Sprintf("%s %s", pageRequest.Sort.Field, dir))
+	}
+
+	if err := tx.Offset(offset).Limit(size).Find(&results).Error; err != nil {
 		return ginboot.PageResponse[T]{}, err
 	}
+
+	totalPages := int((total + int64(size) - 1) / int64(size))
 
 	return ginboot.PageResponse[T]{
 		Contents:         results,
-		NumberOfElements: pageRequest.Size,
+		NumberOfElements: len(results),
 		Pageable:         pageRequest,
-		TotalElements:    total,
-		TotalPages:       (total + pageRequest.Size - 1) / pageRequest.Size,
+		TotalElements:    int(total),
+		TotalPages:       totalPages,
 	}, nil
 }
 
 func (r *SQLRepository[T]) FindByPaginated(pageRequest ginboot.PageRequest, filters map[string]interface{}) (ginboot.PageResponse[T], error) {
-	conditions, values := r.buildWhereClause(filters)
-	offset := (pageRequest.Page - 1) * pageRequest.Size
-
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s LIMIT $%d OFFSET $%d",
-		r.tableName, conditions, len(values)+1, len(values)+2)
-
-	queryValues := append(values, pageRequest.Size, offset)
-	rows, err := r.db.Query(query, queryValues...)
-	if err != nil {
-		return ginboot.PageResponse[T]{}, err
-	}
-	defer rows.Close()
-
 	var results []T
-	results, err = r.scanRows(rows)
-	if err = rows.Err(); err != nil {
+	var total int64
+
+	page := pageRequest.Page
+	if page < 1 {
+		page = 1
+	}
+	size := pageRequest.Size
+	if size <= 0 {
+		size = 10
+	}
+	offset := (page - 1) * size
+
+	tx := r.scopedDB().Where(filters)
+	var entity T
+	if err := tx.Model(&entity).Count(&total).Error; err != nil {
 		return ginboot.PageResponse[T]{}, err
 	}
 
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", r.tableName, conditions)
-	var total int
-	err = r.db.QueryRow(countQuery, values...).Scan(&total)
-	if err != nil {
+	if pageRequest.Sort.Field != "" {
+		dir := "ASC"
+		if pageRequest.Sort.Direction < 0 {
+			dir = "DESC"
+		}
+		tx = tx.Order(fmt.Sprintf("%s %s", pageRequest.Sort.Field, dir))
+	}
+
+	if err := tx.Offset(offset).Limit(size).Find(&results).Error; err != nil {
 		return ginboot.PageResponse[T]{}, err
 	}
+
+	totalPages := int((total + int64(size) - 1) / int64(size))
 
 	return ginboot.PageResponse[T]{
 		Contents:         results,
-		NumberOfElements: pageRequest.Size,
+		NumberOfElements: len(results),
 		Pageable:         pageRequest,
+		TotalElements:    int(total),
+		TotalPages:       totalPages,
 	}, nil
 }
 
 func (r *SQLRepository[T]) CountBy(field string, value interface{}) (int64, error) {
 	var count int64
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s = $1", r.tableName, field)
-	err := r.db.QueryRow(query, value).Scan(&count)
+	var entity T
+	err := r.scopedDB().Model(&entity).Where(fmt.Sprintf("%s = ?", field), value).Count(&count).Error
 	return count, err
 }
 
 func (r *SQLRepository[T]) CountByFilters(filters map[string]interface{}) (int64, error) {
-	conditions, values := r.buildWhereClause(filters)
 	var count int64
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", r.tableName, conditions)
-	err := r.db.QueryRow(query, values...).Scan(&count)
+	var entity T
+	err := r.scopedDB().Model(&entity).Where(filters).Count(&count).Error
 	return count, err
 }
 
@@ -307,141 +215,28 @@ func (r *SQLRepository[T]) ExistsByFilters(filters map[string]interface{}) (bool
 }
 
 func (r *SQLRepository[T]) DeleteAll(options ...interface{}) error {
-	query := fmt.Sprintf("DELETE FROM %s", r.tableName)
-	_, err := r.db.Exec(query)
-	return err
+	var entity T
+	tx := r.scopedDB()
+	for _, opt := range options {
+		tx = tx.Where(opt)
+	}
+	return tx.Where("1=1").Delete(&entity).Error
 }
 
 func (r *SQLRepository[T]) DeleteBy(field string, value interface{}) error {
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", r.tableName, field)
-	_, err := r.db.Exec(query, value)
-	return err
+	var entity T
+	return r.scopedDB().Where(fmt.Sprintf("%s = ?", field), value).Delete(&entity).Error
 }
 
 func (r *SQLRepository[T]) DeleteByFilters(filters map[string]interface{}) error {
-	conditions, values := r.buildWhereClause(filters)
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s", r.tableName, conditions)
-	_, err := r.db.Exec(query, values...)
-	return err
-}
-
-func (r *SQLRepository[T]) scanRow(row *sql.Row, dest *T) error {
-	val := reflect.ValueOf(dest).Elem() // Get the value that dest points to
-	typ := val.Type()
-
-	// Create a slice of interface{} to hold pointers to the fields
-	scanArgs := make([]interface{}, 0, typ.NumField())
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.Tag.Get("db") == "-" {
-			continue
-		}
-		scanArgs = append(scanArgs, val.Field(i).Addr().Interface())
-	}
-
-	return row.Scan(scanArgs...)
-}
-
-func (r *SQLRepository[T]) scanSingleRow(rows *sql.Rows, dest *T) error {
-	val := reflect.ValueOf(dest).Elem() // Get the value that dest points to
-	typ := val.Type()
-
-	// Create a slice of interface{} to hold pointers to the fields
-	scanArgs := make([]interface{}, 0, typ.NumField())
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.Tag.Get("db") == "-" {
-			continue
-		}
-		scanArgs = append(scanArgs, val.Field(i).Addr().Interface())
-	}
-
-	return rows.Scan(scanArgs...)
-}
-
-func (r *SQLRepository[T]) scanRows(rows *sql.Rows) ([]T, error) {
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := r.scanSingleRow(rows, &item); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-	return results, rows.Err()
-}
-
-func (r *SQLRepository[T]) extractFieldsAndValues(doc T) ([]string, []interface{}) {
-	v := reflect.ValueOf(doc)
-	t := v.Type()
-	var fields []string
-	var values []interface{}
-
-	for i := 0; i < v.NumField(); i++ {
-		field := t.Field(i)
-		tag := field.Tag.Get("db")
-		if tag == "-" {
-			continue
-		}
-		if tag == "" {
-			tag = strings.ToLower(field.Name)
-		}
-		fields = append(fields, tag)
-		values = append(values, v.Field(i).Interface())
-	}
-	return fields, values
-}
-
-func (r *SQLRepository[T]) buildWhereClause(filters map[string]interface{}) (string, []interface{}) {
-	var conditions []string
-	var values []interface{}
-	i := 1
-
-	for field, value := range filters {
-		conditions = append(conditions, fmt.Sprintf("%s = $%d", field, i))
-		values = append(values, value)
-		i++
-	}
-
-	return strings.Join(conditions, " AND "), values
+	var entity T
+	return r.scopedDB().Where(filters).Delete(&entity).Error
 }
 
 func (r *SQLRepository[T]) CreateTable() error {
 	var entity T
-	typ := reflect.TypeOf(entity)
-
-	columns := []string{}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		columnName := field.Tag.Get("db")
-		if columnName == "-" {
-			continue
-		}
-		if columnName == "" {
-			columnName = strings.ToLower(field.Name)
-		}
-
-		sqlType := "TEXT"
-		switch field.Type.Kind() {
-		case reflect.String:
-			sqlType = "TEXT"
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			sqlType = "INTEGER"
-		case reflect.Bool:
-			sqlType = "BOOLEAN"
-		case reflect.Float32, reflect.Float64:
-			sqlType = "REAL"
-		}
-
-		columnDef := fmt.Sprintf("%s %s", columnName, sqlType)
-		if columnName == "id" {
-			columnDef += " PRIMARY KEY"
-		}
-		columns = append(columns, columnDef)
+	if r.tableName != "" {
+		return r.db.Table(r.tableName).AutoMigrate(&entity)
 	}
-
-	createQuery := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)", r.tableName, strings.Join(columns, ", "))
-
-	_, err := r.db.Exec(createQuery)
-	return err
+	return r.db.AutoMigrate(&entity)
 }

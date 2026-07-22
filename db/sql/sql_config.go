@@ -4,6 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 type SQLConfig struct {
@@ -59,8 +63,13 @@ func (c *SQLConfig) BuildDSN() string {
 	case "mysql":
 		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
 			c.Username, c.Password, c.Host, c.Port, c.Database)
+	case "sqlite":
+		if c.Database != "" {
+			return c.Database
+		}
+		return ":memory:"
 	default:
-		return ""
+		return c.Database
 	}
 }
 
@@ -80,3 +89,32 @@ func (c *SQLConfig) Connect() (*sql.DB, error) {
 
 	return db, nil
 }
+
+func (c *SQLConfig) ConnectGORM() (*gorm.DB, error) {
+	dsn := c.BuildDSN()
+	var dialector gorm.Dialector
+
+	switch c.Driver {
+	case "postgres":
+		dialector = postgres.Open(dsn)
+	case "sqlite":
+		dialector = sqlite.Open(dsn)
+	default:
+		dialector = postgres.Open(dsn)
+	}
+
+	gormDB, err := gorm.Open(dialector, &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to GORM database: %w", err)
+	}
+
+	sqlDB, err := gormDB.DB()
+	if err == nil {
+		sqlDB.SetMaxOpenConns(25)
+		sqlDB.SetMaxIdleConns(25)
+		sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	}
+
+	return gormDB, nil
+}
+

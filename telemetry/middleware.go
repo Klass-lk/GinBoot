@@ -28,14 +28,9 @@ func RequestIDMiddleware() gin.HandlerFunc {
 		if reqID == "" {
 			reqID = c.GetHeader("x-request-id")
 		}
-
-		span := trace.SpanFromContext(c.Request.Context())
-		spanCtx := span.SpanContext()
-
-		if reqID == "" && spanCtx.HasTraceID() {
-			reqID = spanCtx.TraceID().String()
+		if reqID == "" {
+			reqID = c.GetHeader("apigw-requestid")
 		}
-
 		if reqID == "" {
 			reqID = generateReqID()
 		}

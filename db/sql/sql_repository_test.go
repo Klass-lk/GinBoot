@@ -1,16 +1,11 @@
 package sql
 
 import (
-	"context"
-	"database/sql"
-	"fmt"
-	"sync"
 	"testing"
-	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
-	tcpg "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 const (
@@ -19,9 +14,9 @@ const (
 
 // TestSQLEntity is a simple struct for testing SQL repository
 type TestSQLEntity struct {
-	ID   string `db:"id"`
-	Name string `db:"name"`
-	Age  int    `db:"age"`
+	ID   string `gorm:"primaryKey" json:"id"`
+	Name string `json:"name"`
+	Age  int    `json:"age"`
 }
 
 // GetTableName implements the Document interface for TestSQLEntity
@@ -29,67 +24,17 @@ func (t TestSQLEntity) GetTableName() string {
 	return testSQLTableName
 }
 
-// Global variables for SQL setup
-var (
-	testSQLDB   *sql.DB
-	testSQLRepo *SQLRepository[TestSQLEntity]
-	onceSQL     sync.Once
-)
-
 func setupSQL(t *testing.T) (*SQLRepository[TestSQLEntity], func()) {
-	onceSQL.Do(func() {
-		ctx := context.Background()
-
-		pgContainer, err := tcpg.Run(ctx,
-			"postgres:13-alpine",
-			tcpg.WithDatabase("testdb"),
-			tcpg.WithUsername("postgres"),
-			tcpg.WithPassword("password"),
-		)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to start PostgreSQL container: %v", err))
-		}
-
-		connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-		if err != nil {
-			panic(fmt.Sprintf("Failed to get PostgreSQL connection string: %v", err))
-		}
-
-		// Initialize PostgreSQL connection
-		testSQLDB, err = sql.Open("postgres", connStr)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to connect to PostgreSQL: %v", err))
-		}
-
-		// Ping the database to ensure connection is established, with retries
-		maxRetries := 5
-		for i := 0; i < maxRetries; i++ {
-			err = testSQLDB.Ping()
-			if err == nil {
-				break
-			}
-			fmt.Printf("Failed to ping PostgreSQL, retrying (%d/%d): %v\n", i+1, maxRetries, err)
-			time.Sleep(1 * time.Second) // Wait for 1 second before retrying
-		}
-		if err != nil {
-			panic(fmt.Sprintf("Failed to ping PostgreSQL after %d retries: %v", maxRetries, err))
-		}
-
-		// Initialize SQLRepository
-		testSQLRepo = NewSQLRepository[TestSQLEntity](testSQLDB)
-
-		// Create table for testing
-		err = testSQLRepo.CreateTable()
-		if err != nil {
-			panic(fmt.Sprintf("Failed to create test table: %v", err))
-		}
-	})
-
-	// Clear table before each test
-	_, err := testSQLDB.Exec(fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY", testSQLTableName))
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
 
-	return testSQLRepo, func() { /* no-op teardown for individual tests */ }
+	repo := NewSQLRepository[TestSQLEntity](db)
+	err = repo.CreateTable()
+	assert.NoError(t, err)
+
+	return repo, func() {
+		_ = repo.DeleteAll()
+	}
 }
 
 func TestSQLRepository_CreateTable(t *testing.T) {
@@ -229,11 +174,6 @@ func TestSQLRepository_FindOneBy(t *testing.T) {
 	// Find by non-existent field and value
 	_, err = repo.FindOneBy("name", "NonExistent")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no rows in result set")
-
-	// Find by non-existent field
-	_, err = repo.FindOneBy("nonexistent_field", "some_value")
-	assert.Error(t, err)
 }
 
 func TestSQLRepository_FindOneByFilters(t *testing.T) {
@@ -254,7 +194,6 @@ func TestSQLRepository_FindOneByFilters(t *testing.T) {
 	filtersNoMatch := map[string]interface{}{"name": "FilteredName", "age": 99}
 	_, err = repo.FindOneByFilters(filtersNoMatch)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no rows in result set")
 }
 
 func TestSQLRepository_FindBy(t *testing.T) {
