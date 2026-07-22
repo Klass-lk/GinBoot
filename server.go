@@ -89,7 +89,8 @@ func (s *Server) DefaultCORS() *Server {
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
-	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "x-request-id"}
+	config.ExposeHeaders = []string{"X-Request-ID", "x-request-id"}
 	config.MaxAge = 12 * time.Hour
 	return s.WithCORS(&config)
 }
