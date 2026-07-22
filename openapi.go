@@ -161,11 +161,19 @@ func buildParameters(t reflect.Type) []OpenAPIParameter {
 }
 
 func buildSchema(t reflect.Type) *OpenAPISchema {
-	if t == nil {
-		return nil
+	return buildSchemaWithVisited(t, make(map[reflect.Type]bool), 0)
+}
+
+func buildSchemaWithVisited(t reflect.Type, visited map[reflect.Type]bool, depth int) *OpenAPISchema {
+	if t == nil || depth > 10 {
+		return &OpenAPISchema{Type: "object"}
 	}
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
+	}
+
+	if visited[t] {
+		return &OpenAPISchema{Type: "object"}
 	}
 
 	schema := &OpenAPISchema{}
@@ -181,18 +189,27 @@ func buildSchema(t reflect.Type) *OpenAPISchema {
 		schema.Type = "boolean"
 	case reflect.Slice, reflect.Array:
 		schema.Type = "array"
-		schema.Items = buildSchema(t.Elem())
+		schema.Items = buildSchemaWithVisited(t.Elem(), visited, depth+1)
 	case reflect.Struct:
-		// Convert time.Time to string format
-		if t.String() == "time.Time" {
+		// Convert time.Time or gorm.DeletedAt to string format
+		if t.String() == "time.Time" || strings.HasSuffix(t.String(), "DeletedAt") {
 			schema.Type = "string"
 			schema.Format = "date-time"
 			return schema
 		}
+
+		visited[t] = true
+		defer func() {
+			delete(visited, t)
+		}()
+
 		schema.Type = "object"
 		schema.Properties = make(map[string]*OpenAPISchema)
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
+			if !field.IsExported() {
+				continue
+			}
 			name := field.Tag.Get("json")
 			if name == "" {
 				name = strings.ToLower(field.Name)
@@ -201,9 +218,9 @@ func buildSchema(t reflect.Type) *OpenAPISchema {
 			if name == "-" {
 				continue
 			}
-			schema.Properties[name] = buildSchema(field.Type)
+			schema.Properties[name] = buildSchemaWithVisited(field.Type, visited, depth+1)
 		}
-	case reflect.Map:
+	case reflect.Map, reflect.Interface:
 		schema.Type = "object"
 	default:
 		schema.Type = "string"

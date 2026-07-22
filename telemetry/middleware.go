@@ -40,6 +40,7 @@ func RequestIDMiddleware() gin.HandlerFunc {
 		c.Set("request_id", reqID)
 
 		// Record attribute on active span if recording
+		span := trace.SpanFromContext(c.Request.Context())
 		if span.IsRecording() {
 			span.SetAttributes(
 				attribute.String("http.request_id", reqID),

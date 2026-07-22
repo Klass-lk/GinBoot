@@ -13,6 +13,13 @@ type ApiError struct {
 	Message   string `json:"message"`
 }
 
+func NewApiError(code int, message string) ApiError {
+	return ApiError{
+		ErrorCode: fmt.Sprintf("%d", code),
+		Message:   message,
+	}
+}
+
 func (e ApiError) New(messages ...string) ApiError {
 	args := make([]any, len(messages))
 	for i, msg := range messages {
