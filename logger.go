@@ -2,7 +2,9 @@ package ginboot
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -13,6 +15,12 @@ type Logger interface {
 	Debug(msg string, args ...any)
 	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
+
+	Infof(format string, args ...any)
+	Debugf(format string, args ...any)
+	Warnf(format string, args ...any)
+	Errorf(format string, args ...any)
+
 	// WithContext returns a new Logger instance bound to the given context.
 	WithContext(ctx context.Context) Logger
 }
@@ -60,20 +68,52 @@ func extractTraceAttrs(ctx context.Context, args []any) []any {
 	return args
 }
 
+func processMsgAndArgs(msg string, args []any) (string, []any) {
+	if len(args) > 0 && strings.Contains(msg, "%") {
+		msg = fmt.Sprintf(msg, args...)
+		args = nil
+	}
+	return msg, args
+}
+
 func (w *slogWrapper) Info(msg string, args ...any) {
+	msg, args = processMsgAndArgs(msg, args)
 	w.logger.InfoContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
 }
 
 func (w *slogWrapper) Debug(msg string, args ...any) {
+	msg, args = processMsgAndArgs(msg, args)
 	w.logger.DebugContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
 }
 
 func (w *slogWrapper) Warn(msg string, args ...any) {
+	msg, args = processMsgAndArgs(msg, args)
 	w.logger.WarnContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
 }
 
 func (w *slogWrapper) Error(msg string, args ...any) {
+	msg, args = processMsgAndArgs(msg, args)
 	w.logger.ErrorContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
+}
+
+func (w *slogWrapper) Infof(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	w.logger.InfoContext(w.ctx, msg, extractTraceAttrs(w.ctx, nil)...)
+}
+
+func (w *slogWrapper) Debugf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	w.logger.DebugContext(w.ctx, msg, extractTraceAttrs(w.ctx, nil)...)
+}
+
+func (w *slogWrapper) Warnf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	w.logger.WarnContext(w.ctx, msg, extractTraceAttrs(w.ctx, nil)...)
+}
+
+func (w *slogWrapper) Errorf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	w.logger.ErrorContext(w.ctx, msg, extractTraceAttrs(w.ctx, nil)...)
 }
 
 func (w *slogWrapper) WithContext(ctx context.Context) Logger {
