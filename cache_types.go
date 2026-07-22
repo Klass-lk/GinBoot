@@ -5,18 +5,18 @@ import "time"
 // CacheEntry represents the main cache item stored in DynamoDB/SQL/Mongo
 type CacheEntry struct {
 	// Common Fields
-	PK   string `dynamodbav:"pk" json:"pk" bson:"_id" db:"id" ginboot:"id"`
+	PK   string `dynamodbav:"pk" json:"pk" bson:"_id" db:"id" ginboot:"id" gorm:"primaryKey;column:id"`
 	Data []byte `dynamodbav:"data" json:"data" bson:"data" db:"data"`
 
 	// DynamoDB Specific
-	SK string `dynamodbav:"sk" json:"sk,omitempty" bson:"-" db:"-"`
+	SK string `dynamodbav:"sk" json:"sk,omitempty" bson:"-" db:"-" gorm:"-"`
 
 	// Metadata
 	TTL       int64 `dynamodbav:"ttl" json:"ttl" bson:"ttl" db:"ttl"`
 	CreatedAt int64 `dynamodbav:"createdAt" json:"createdAt" bson:"createdAt" db:"created_at"`
 
 	// Mongo Specific (Embedded tags for querying)
-	Tags []string `dynamodbav:"tags,omitempty" json:"tags,omitempty" bson:"tags,omitempty" db:"-"`
+	Tags []string `dynamodbav:"tags,omitempty" json:"tags,omitempty" bson:"tags,omitempty" db:"-" gorm:"-"`
 }
 
 func (c CacheEntry) GetTableName() string {
@@ -27,7 +27,7 @@ func (c CacheEntry) GetTableName() string {
 // For MongoDB, we just query the Tags array in CacheEntry directly.
 // For SQL, this maps to 'cache_tags' table.
 type TagEntry struct {
-	ID        string `dynamodbav:"-" json:"id" bson:"_id" db:"id" ginboot:"id"` // Composite ID for SQL: "tag:key"
+	ID        string `dynamodbav:"-" json:"id" bson:"_id" db:"id" ginboot:"id" gorm:"primaryKey;column:id"` // Composite ID for SQL: "tag:key"
 	PK        string `dynamodbav:"pk" json:"pk" bson:"pk"`                      // TAG#<tag>
 	SK        string `dynamodbav:"sk" json:"sk" bson:"sk"`                      // CACHE#<key>
 	TTL       int64  `dynamodbav:"ttl" json:"ttl" bson:"ttl" db:"ttl"`
