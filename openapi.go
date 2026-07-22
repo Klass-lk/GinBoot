@@ -125,6 +125,10 @@ func registerOpenAPIRoute(method, path string, handlerType reflect.Type) {
 	}
 
 	openApiSpec.Paths[path][strings.ToLower(method)] = operation
+
+	if exportPath := os.Getenv("GINBOOT_EXPORT_SWAGGER"); exportPath != "" {
+		_ = exportOpenAPISpec(exportPath)
+	}
 }
 
 func buildParameters(t reflect.Type) []OpenAPIParameter {
