@@ -3,6 +3,8 @@ package ginboot
 import (
 	"context"
 	"log/slog"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Logger defines a generic logging interface that users can implement to provide their own loggers.
@@ -32,20 +34,46 @@ func NewSlogLogger(logger *slog.Logger) Logger {
 	}
 }
 
+func extractTraceAttrs(ctx context.Context, args []any) []any {
+	if ctx == nil {
+		return args
+	}
+	span := trace.SpanFromContext(ctx)
+	if span.SpanContext().IsValid() {
+		traceID := span.SpanContext().TraceID().String()
+		spanID := span.SpanContext().SpanID().String()
+
+		hasTrace := false
+		for i := 0; i < len(args); i += 2 {
+			if k, ok := args[i].(string); ok && (k == "trace_id" || k == "traceId") {
+				hasTrace = true
+				break
+			}
+		}
+		if !hasTrace {
+			newArgs := make([]any, 0, len(args)+4)
+			newArgs = append(newArgs, "trace_id", traceID, "span_id", spanID)
+			newArgs = append(newArgs, args...)
+			return newArgs
+		}
+	}
+	return args
+}
+
 func (w *slogWrapper) Info(msg string, args ...any) {
-	w.logger.InfoContext(w.ctx, msg, args...)
+	w.logger.InfoContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
 }
 
 func (w *slogWrapper) Debug(msg string, args ...any) {
-	w.logger.DebugContext(w.ctx, msg, args...)
+	w.logger.DebugContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
 }
 
 func (w *slogWrapper) Warn(msg string, args ...any) {
-	w.logger.WarnContext(w.ctx, msg, args...)
+	w.logger.WarnContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
 }
 
 func (w *slogWrapper) Error(msg string, args ...any) {
-	w.logger.ErrorContext(w.ctx, msg, args...)
+	w.logger.ErrorContext(w.ctx, msg, extractTraceAttrs(w.ctx, args)...)
 }
 
 func (w *slogWrapper) WithContext(ctx context.Context) Logger {

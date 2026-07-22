@@ -35,6 +35,11 @@ func (s *Server) Engine() *gin.Engine {
 	return s.engine
 }
 
+// IsExportingSwagger returns true if the current execution is for Swagger/OpenAPI spec generation.
+func IsExportingSwagger() bool {
+	return os.Getenv("GINBOOT_EXPORT_SWAGGER") != ""
+}
+
 func (s *Server) Start(port int) error {
 	exportPath := os.Getenv("GINBOOT_EXPORT_SWAGGER")
 	if exportPath != "" {
