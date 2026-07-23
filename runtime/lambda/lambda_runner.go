@@ -13,11 +13,27 @@ import (
 )
 
 func NewRunner() ginboot.Runner {
+	return NewRunnerWithScheduler(nil)
+}
+
+func NewRunnerWithScheduler(scheduler *ginboot.Scheduler) ginboot.Runner {
 	return func(engine *gin.Engine) error {
 		ginLambdaV1 := ginadapter.New(engine)
 		ginLambdaV2 := ginadapter.NewV2(engine)
 
 		handler := func(ctx context.Context, req json.RawMessage) (interface{}, error) {
+			// Check if incoming payload is a cloud scheduled event (AWS EventBridge, GCP, Azure, HTTP)
+			if scheduler != nil {
+				if event, ok := scheduler.ParseScheduledEvent(req); ok {
+					if event.TaskName != "" {
+						err := scheduler.ExecuteWorkerByName(ctx, event.TaskName)
+						return map[string]interface{}{"status": "scheduled worker executed", "provider": event.Provider, "task": event.TaskName}, err
+					}
+					results := scheduler.ExecuteAllWorkers(ctx)
+					return map[string]interface{}{"status": "all scheduled workers executed", "provider": event.Provider, "results": results}, nil
+				}
+			}
+
 			reqStr := string(req)
 			if strings.Contains(reqStr, `"version":"2.0"`) || strings.Contains(reqStr, `"version": "2.0"`) {
 				var v2Req events.APIGatewayV2HTTPRequest
