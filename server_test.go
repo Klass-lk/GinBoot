@@ -3,6 +3,7 @@ package ginboot
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -107,6 +108,9 @@ func TestServer_StartWithSwaggerExport(t *testing.T) {
 
 	// Create a temp file path for testing
 	tmpFile := "test_swagger.json"
+	t.Cleanup(func() {
+		os.Remove(tmpFile)
+	})
 
 	// Set the environment variable
 	t.Setenv("GINBOOT_EXPORT_SWAGGER", tmpFile)
@@ -170,3 +174,64 @@ func TestServer_DefaultCORS(t *testing.T) {
 	assert.NotNil(t, server.corsConfig)
 	assert.True(t, server.corsConfig.AllowAllOrigins)
 }
+
+func TestServer_DebugPrintRoute(t *testing.T) {
+	gin.SetMode(gin.DebugMode)
+	defer gin.SetMode(gin.TestMode)
+
+	assert.NotNil(t, gin.DebugPrintRouteFunc)
+	assert.NotPanics(t, func() {
+		gin.DebugPrintRouteFunc("GET", "/test-debug", "main.handler", 1)
+	})
+}
+
+func TestIsExportingSwagger(t *testing.T) {
+	assert.False(t, IsExportingSwagger())
+	t.Setenv("GINBOOT_EXPORT_SWAGGER", "true")
+	assert.True(t, IsExportingSwagger())
+}
+
+func TestServer_HealthRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := New()
+	// Test relative basePath without leading slash to trigger !strings.HasPrefix(p, "/")
+	server.SetBasePath("api/v1")
+	server.registerDefaultHealthRoutes()
+
+	routes := []string{"/healthz", "/health", "/api/v1/healthz", "/api/v1/health"}
+	for _, route := range routes {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", route, nil)
+		server.engine.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), `"status":"UP"`)
+	}
+}
+
+func TestServer_StartWithSwaggerExportFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("GINBOOT_EXPORT_SWAGGER", "/invalid_dir_path_xyz/swagger.json")
+
+	exitCalled := false
+	var exitCode int
+	originalOsExit := osExit
+	osExit = func(code int) {
+		exitCalled = true
+		exitCode = code
+	}
+	defer func() { osExit = originalOsExit }()
+
+	server := New()
+	err := server.Start(8080)
+	assert.Error(t, err)
+	assert.True(t, exitCalled)
+	assert.Equal(t, 1, exitCode)
+}
+
+func TestServer_SetLogger(t *testing.T) {
+	server := New()
+	logger := NewSlogLogger(nil)
+	server.SetLogger(logger)
+	assert.Equal(t, logger, server.logger)
+}
+

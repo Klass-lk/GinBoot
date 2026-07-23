@@ -266,6 +266,111 @@ func TestRouter(t *testing.T) {
 		assert.True(t, middleware2Called)
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
+
+	t.Run("void handlers", func(t *testing.T) {
+		server := &Server{engine: gin.New()}
+		group := server.Group("/test")
+
+		ginCtxCalled := false
+		ginbootCtxCalled := false
+
+		group.GET("/gin-ctx", func(c *gin.Context) {
+			ginCtxCalled = true
+			c.String(http.StatusOK, "gin")
+		})
+
+		group.GET("/ginboot-ctx", func(c *Context) {
+			ginbootCtxCalled = true
+			c.String(http.StatusOK, "ginboot")
+		})
+
+		w1 := httptest.NewRecorder()
+		req1 := httptest.NewRequest("GET", "/test/gin-ctx", nil)
+		server.engine.ServeHTTP(w1, req1)
+		assert.True(t, ginCtxCalled)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		w2 := httptest.NewRecorder()
+		req2 := httptest.NewRequest("GET", "/test/ginboot-ctx", nil)
+		server.engine.ServeHTTP(w2, req2)
+		assert.True(t, ginbootCtxCalled)
+		assert.Equal(t, http.StatusOK, w2.Code)
+	})
+
+	t.Run("nil response handler", func(t *testing.T) {
+		server := &Server{engine: gin.New()}
+		group := server.Group("/test")
+
+		group.GET("/nil-resp", func(ctx *Context) (interface{}, error) {
+			return nil, nil
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/test/nil-resp", nil)
+		server.engine.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("error responses", func(t *testing.T) {
+		server := &Server{engine: gin.New()}
+		group := server.Group("/test")
+
+		group.GET("/api-error", func(ctx *Context) (string, error) {
+			return "", NewApiError(400, "bad parameter")
+		})
+
+		group.GET("/std-error", func(ctx *Context) (string, error) {
+			return "", assert.AnError
+		})
+
+		group.POST("/ctx-req-invalid", func(ctx *Context, req TestRouterRequest) (string, error) {
+			return req.Name, nil
+		})
+
+		w1 := httptest.NewRecorder()
+		req1 := httptest.NewRequest("GET", "/test/api-error", nil)
+		server.engine.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusBadRequest, w1.Code)
+
+		w2 := httptest.NewRecorder()
+		req2 := httptest.NewRequest("GET", "/test/std-error", nil)
+		server.engine.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusInternalServerError, w2.Code)
+
+		w3 := httptest.NewRecorder()
+		req3 := httptest.NewRequest("POST", "/test/ctx-req-invalid", strings.NewReader("invalid json"))
+		req3.Header.Set("Content-Type", "application/json")
+		server.engine.ServeHTTP(w3, req3)
+		assert.Equal(t, http.StatusBadRequest, w3.Code)
+	})
+
+	t.Run("wrapHandler panics", func(t *testing.T) {
+		assert.PanicsWithValue(t, "handler must be a function", func() {
+			wrapHandler("not a func", nil, nil)
+		})
+
+		assert.PanicsWithValue(t, "handler must return (response, error)", func() {
+			wrapHandler(func() string { return "" }, nil, nil)
+		})
+
+		assert.PanicsWithValue(t, "second return value must be error", func() {
+			wrapHandler(func() (string, string) { return "", "" }, nil, nil)
+		})
+
+		assert.PanicsWithValue(t, "first argument must be *Context when using two arguments", func() {
+			fn := wrapHandler(func(a string, b string) (string, error) { return "", nil }, nil, nil)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			fn(c)
+		})
+
+		assert.PanicsWithValue(t, "handler must have 0-2 arguments", func() {
+			fn := wrapHandler(func(a, b, c string) (string, error) { return "", nil }, nil, nil)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			fn(c)
+		})
+	})
 }
 
 // Mock controller for testing
@@ -276,3 +381,4 @@ type MockController struct {
 func (m *MockController) Register(group *ControllerGroup) {
 	m.registerCalled = true
 }
+

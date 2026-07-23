@@ -1,6 +1,7 @@
 package ginboot
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,6 +148,15 @@ func TestContext_GetPageRequest(t *testing.T) {
 			expectedSort: SortField{Field: "name", Direction: -1},
 		},
 		{
+			name: "single sort field without comma",
+			queryParams: map[string]string{
+				"sort": "name",
+			},
+			expectedPage: 1,
+			expectedSize: 10,
+			expectedSort: SortField{Field: "name", Direction: 1},
+		},
+		{
 			name: "invalid page",
 			queryParams: map[string]string{
 				"page": "invalid",
@@ -189,3 +199,88 @@ func TestContext_GetPageRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestContext_GetFileService(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	mFS := &mockFileService{}
+	ctx := NewContext(c, mFS, nil)
+	assert.Equal(t, mFS, ctx.GetFileService())
+}
+
+func TestContext_Logger(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("GET", "/", nil)
+	c.Request = req
+
+	// Case 1: Custom logger provided
+	customLogger := NewSlogLogger(nil)
+	ctx1 := NewContext(c, nil, customLogger)
+	assert.NotNil(t, ctx1.Logger())
+
+	// Case 2: Nil logger (fallback)
+	ctx2 := NewContext(c, nil, nil)
+	assert.NotNil(t, ctx2.Logger())
+}
+
+func TestContext_RecordError_Nil(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("GET", "/", nil)
+	c.Request = req
+	ctx := NewContext(c, nil, nil)
+
+	assert.NotPanics(t, func() {
+		ctx.RecordError(nil)
+	})
+}
+
+func TestContext_SendError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name           string
+		err            error
+		expectedStatus int
+		expectedCode   string
+	}{
+		{
+			name:           "ApiError with valid HTTP status code",
+			err:            ApiError{ErrorCode: "404", Message: "Not Found"},
+			expectedStatus: http.StatusNotFound,
+			expectedCode:   "404",
+		},
+		{
+			name:           "ApiError with non-numeric error code",
+			err:            ApiError{ErrorCode: "INVALID_PARAM", Message: "Bad parameter"},
+			expectedStatus: http.StatusBadRequest,
+			expectedCode:   "INVALID_PARAM",
+		},
+		{
+			name:           "Generic error",
+			err:            errors.New("internal error"),
+			expectedStatus: http.StatusInternalServerError,
+			expectedCode:   "Internal Server Error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			req := httptest.NewRequest("GET", "/", nil)
+			c.Request = req
+
+			ctx := NewContext(c, nil, nil)
+			ctx.SendError(tt.err)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Contains(t, w.Body.String(), tt.expectedCode)
+		})
+	}
+}
+
