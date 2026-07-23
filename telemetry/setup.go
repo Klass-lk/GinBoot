@@ -51,64 +51,79 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 		fmt.Printf("[OpenTelemetry Error] %v\n", err)
 	}))
 
-	// Determine if OTLP endpoint is configured
-	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if endpoint == "" {
-		// Fallback for local development or default OTLP port if desired
-		// Just relying on standard env vars is usually enough.
-	}
-
-	// Set up trace provider
-	traceExporter, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
-	}
+	// Determine if OTLP endpoint is configured in environment
+	hasOTLPConfig := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") != "" ||
+		os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != ""
 
 	isLambda := os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 
-	var spanProcessor trace.SpanProcessor
-	if isLambda {
-		spanProcessor = trace.NewSimpleSpanProcessor(traceExporter)
+	// Set up trace provider
+	var tracerProvider *trace.TracerProvider
+	if hasOTLPConfig {
+		traceExporter, err := otlptracehttp.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create trace exporter: %w", err)
+		}
+		var spanProcessor trace.SpanProcessor
+		if isLambda {
+			spanProcessor = trace.NewSimpleSpanProcessor(traceExporter)
+		} else {
+			spanProcessor = trace.NewBatchSpanProcessor(traceExporter)
+		}
+		tracerProvider = trace.NewTracerProvider(
+			trace.WithSampler(trace.AlwaysSample()),
+			trace.WithResource(res),
+			trace.WithSpanProcessor(spanProcessor),
+		)
 	} else {
-		spanProcessor = trace.NewBatchSpanProcessor(traceExporter)
+		tracerProvider = trace.NewTracerProvider(
+			trace.WithResource(res),
+		)
 	}
-
-	tracerProvider := trace.NewTracerProvider(
-		trace.WithSampler(trace.AlwaysSample()),
-		trace.WithResource(res),
-		trace.WithSpanProcessor(spanProcessor),
-	)
 	otel.SetTracerProvider(tracerProvider)
 
 	// Set up metric provider
-	metricExporter, err := otlpmetrichttp.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create metric exporter: %w", err)
+	var meterProvider *metric.MeterProvider
+	if hasOTLPConfig {
+		metricExporter, err := otlpmetrichttp.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create metric exporter: %w", err)
+		}
+		meterProvider = metric.NewMeterProvider(
+			metric.WithResource(res),
+			metric.WithReader(metric.NewPeriodicReader(metricExporter, metric.WithInterval(15*time.Second))),
+		)
+	} else {
+		meterProvider = metric.NewMeterProvider(
+			metric.WithResource(res),
+		)
 	}
-
-	meterProvider := metric.NewMeterProvider(
-		metric.WithResource(res),
-		metric.WithReader(metric.NewPeriodicReader(metricExporter, metric.WithInterval(15*time.Second))),
-	)
 	otel.SetMeterProvider(meterProvider)
 
 	// Set up log provider
-	logExporter, err := otlploghttp.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create log exporter: %w", err)
-	}
-
-	var logProcessor log.Processor
-	if isLambda {
-		logProcessor = log.NewSimpleProcessor(logExporter)
+	var loggerProvider *log.LoggerProvider
+	if hasOTLPConfig {
+		logExporter, err := otlploghttp.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create log exporter: %w", err)
+		}
+		var logProcessor log.Processor
+		if isLambda {
+			logProcessor = log.NewSimpleProcessor(logExporter)
+		} else {
+			logProcessor = log.NewBatchProcessor(logExporter)
+		}
+		loggerProvider = log.NewLoggerProvider(
+			log.WithResource(res),
+			log.WithProcessor(logProcessor),
+		)
 	} else {
-		logProcessor = log.NewBatchProcessor(logExporter)
+		loggerProvider = log.NewLoggerProvider(
+			log.WithResource(res),
+		)
 	}
-
-	loggerProvider := log.NewLoggerProvider(
-		log.WithResource(res),
-		log.WithProcessor(logProcessor),
-	)
 	global.SetLoggerProvider(loggerProvider)
 
 	// Start collecting Go runtime metrics
@@ -119,14 +134,20 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	// Return a shutdown function
 	return func(shutdownCtx context.Context) error {
 		var errs []error
-		if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to shutdown tracer provider: %w", err))
+		if tracerProvider != nil {
+			if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
+				errs = append(errs, fmt.Errorf("failed to shutdown tracer provider: %w", err))
+			}
 		}
-		if err := meterProvider.Shutdown(shutdownCtx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to shutdown meter provider: %w", err))
+		if meterProvider != nil {
+			if err := meterProvider.Shutdown(shutdownCtx); err != nil {
+				errs = append(errs, fmt.Errorf("failed to shutdown meter provider: %w", err))
+			}
 		}
-		if err := loggerProvider.Shutdown(shutdownCtx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to shutdown logger provider: %w", err))
+		if loggerProvider != nil {
+			if err := loggerProvider.Shutdown(shutdownCtx); err != nil {
+				errs = append(errs, fmt.Errorf("failed to shutdown logger provider: %w", err))
+			}
 		}
 		if len(errs) > 0 {
 			return fmt.Errorf("errors during shutdown: %v", errs)

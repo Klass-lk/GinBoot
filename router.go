@@ -46,6 +46,12 @@ func wrapHandler(handler interface{}, service FileService, logger Logger) gin.Ha
 			if handlerType.In(0) == reflect.TypeOf(&gin.Context{}) {
 				return handler.(func(ctx *gin.Context))
 			}
+			if handlerType.In(0) == reflect.TypeOf(&Context{}) {
+				return func(c *gin.Context) {
+					ctx := NewContext(c, service, logger)
+					reflect.ValueOf(handler).Call([]reflect.Value{reflect.ValueOf(ctx)})
+				}
+			}
 		}
 	}
 
