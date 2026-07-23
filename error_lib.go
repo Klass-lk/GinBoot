@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,7 +46,11 @@ type ErrorResponse struct {
 func SendError(c *gin.Context, err error) {
 	var customErr ApiError
 	if errors.As(err, &customErr) {
-		c.JSON(http.StatusBadRequest, gin.H{
+		statusCode := http.StatusBadRequest
+		if code, convErr := strconv.Atoi(customErr.ErrorCode); convErr == nil && code >= 400 && code < 600 {
+			statusCode = code
+		}
+		c.JSON(statusCode, gin.H{
 			"error_code": customErr.ErrorCode,
 			"message":    customErr.Message,
 		})
@@ -54,6 +59,6 @@ func SendError(c *gin.Context, err error) {
 	// Handle other types of errors here
 	c.JSON(http.StatusInternalServerError, gin.H{
 		"error_code": "Internal Server Error",
-		"message":    "An unknown error occurred",
+		"message":    err.Error(),
 	})
 }
