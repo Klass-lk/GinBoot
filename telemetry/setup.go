@@ -66,7 +66,7 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	// Set up trace provider
 	var tracerProvider *trace.TracerProvider
 	if hasOTLPConfig {
-		traceExporter, err := otlptracehttp.New(exporterCtx)
+		traceExporter, err := otlptracehttp.New(exporterCtx, otlptracehttp.WithTimeout(500*time.Millisecond))
 		if err != nil {
 			fmt.Printf("[Telemetry Warning] Failed to create trace exporter: %v. Falling back to default provider.\n", err)
 			tracerProvider = trace.NewTracerProvider(trace.WithResource(res))
@@ -93,7 +93,7 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	// Set up metric provider
 	var meterProvider *metric.MeterProvider
 	if hasOTLPConfig {
-		metricExporter, err := otlpmetrichttp.New(exporterCtx)
+		metricExporter, err := otlpmetrichttp.New(exporterCtx, otlpmetrichttp.WithTimeout(500*time.Millisecond))
 		if err != nil {
 			fmt.Printf("[Telemetry Warning] Failed to create metric exporter: %v. Falling back to default provider.\n", err)
 			meterProvider = metric.NewMeterProvider(metric.WithResource(res))
@@ -113,7 +113,7 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	// Set up log provider
 	var loggerProvider *log.LoggerProvider
 	if hasOTLPConfig {
-		logExporter, err := otlploghttp.New(exporterCtx)
+		logExporter, err := otlploghttp.New(exporterCtx, otlploghttp.WithTimeout(500*time.Millisecond))
 		if err != nil {
 			fmt.Printf("[Telemetry Warning] Failed to create log exporter: %v. Falling back to default provider.\n", err)
 			loggerProvider = log.NewLoggerProvider(log.WithResource(res))
@@ -128,6 +128,7 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 				log.WithResource(res),
 				log.WithProcessor(logProcessor),
 			)
+		}
 		}
 	} else {
 		loggerProvider = log.NewLoggerProvider(
