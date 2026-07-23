@@ -1,6 +1,7 @@
 package ginboot
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -24,6 +25,7 @@ type Server struct {
 	basePath    string
 	fileService FileService
 	logger      Logger
+	scheduler   *Scheduler
 }
 
 func init() {
@@ -39,10 +41,30 @@ func New() *Server {
 	engine := gin.New()
 	engine.Use(gin.Recovery())
 
+	logger := NewSlogLogger(slog.Default())
 	return &Server{
-		engine: engine,
-		logger: NewSlogLogger(slog.Default()), // Set a default logger
+		engine:    engine,
+		logger:    logger,
+		scheduler: NewScheduler(logger),
 	}
+}
+
+func (s *Server) Scheduler() *Scheduler {
+	return s.scheduler
+}
+
+// RegisterWorker registers a scheduled background worker with a custom time interval.
+func (s *Server) RegisterWorker(name string, interval time.Duration, fn TaskFunc) {
+	s.scheduler.RegisterTask(TaskOptions{
+		Name:         name,
+		Interval:     interval,
+		RunOnStartup: true,
+	}, fn)
+}
+
+// RegisterWorkerStruct registers a struct implementing the Worker interface.
+func (s *Server) RegisterWorkerStruct(worker Worker) {
+	s.RegisterWorker(worker.Name(), worker.Interval(), worker.Execute)
 }
 
 func (s *Server) Engine() *gin.Engine {
@@ -95,6 +117,12 @@ func (s *Server) Start(port int) error {
 	if s.runner != nil {
 		return s.runner(s.engine)
 	}
+
+	if s.scheduler != nil && len(s.scheduler.GetTasks()) > 0 {
+		ctx := context.Background()
+		s.scheduler.Start(ctx)
+	}
+
 	return s.startHTTP(port)
 }
 

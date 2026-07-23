@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -126,9 +128,33 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 			fullPath = path + "?" + rawQuery
 		}
 
+		// Record error status on OpenTelemetry span if status >= 400
+		if span.IsRecording() {
+			if status >= 400 {
+				span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d Error", status))
+				if len(c.Errors) > 0 {
+					span.RecordError(c.Errors.Last().Err)
+					span.SetAttributes(attribute.String("error.message", c.Errors.String()))
+				} else {
+					span.SetAttributes(attribute.String("error.message", fmt.Sprintf("HTTP %d status code", status)))
+				}
+			} else {
+				span.SetStatus(codes.Ok, "OK")
+			}
+		}
+
 		// 1. Send structured log record to OpenTelemetry & slog logger
-		if logger != nil {
-			logger.Info("HTTP Request",
+		// Filter out internal polling endpoints (/logs, /metrics, /traces, /health) to prevent log inflation loop
+		isTelemetryPolling := strings.HasSuffix(path, "/logs") || strings.HasSuffix(path, "/metrics") || strings.HasSuffix(path, "/traces") || strings.HasSuffix(path, "/health") || strings.HasSuffix(path, "/healthz")
+		if logger != nil && !isTelemetryPolling {
+			logLevel := slog.LevelInfo
+			if status >= 500 {
+				logLevel = slog.LevelError
+			} else if status >= 400 {
+				logLevel = slog.LevelWarn
+			}
+
+			logger.Log(c.Request.Context(), logLevel, "HTTP Request",
 				slog.Int("status", status),
 				slog.String("method", method),
 				slog.String("path", fullPath),

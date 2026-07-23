@@ -2,5 +2,10 @@
 .env
 example/.env
 example/main
+example/swagger.json
 *.exe
 main
+coverage.out
+*.out
+:memory_cache_service:
+db/sql/:memory_cache_service:
