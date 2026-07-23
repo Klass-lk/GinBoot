@@ -40,6 +40,7 @@ func RequestIDMiddleware() gin.HandlerFunc {
 		c.Set("request_id", reqID)
 
 		// Record attribute on active span if recording
+		span := trace.SpanFromContext(c.Request.Context())
 		if span.IsRecording() {
 			span.SetAttributes(
 				attribute.String("http.request_id", reqID),
@@ -90,12 +91,12 @@ func MetricsMiddleware(meter metric.Meter) gin.HandlerFunc {
 	}
 }
 
-// LoggingMiddleware logs requests using slog, automatically extracting trace_id, span_id, and request_id.
+// LoggingMiddleware logs requests beautifully to the console while sending structured log events to OpenTelemetry / slog.
 func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
-		query := c.Request.URL.RawQuery
+		rawQuery := c.Request.URL.RawQuery
 
 		// Extract trace and span ID before c.Next() to ensure it's available
 		span := trace.SpanFromContext(c.Request.Context())
@@ -115,19 +116,78 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		latency := time.Since(start)
 		status := c.Writer.Status()
 		method := c.Request.Method
+		clientIP := c.ClientIP()
 
 		reqID, _ := c.Get("request_id")
 		reqIDStr, _ := reqID.(string)
 
-		logger.Info("HTTP Request",
-			slog.Int("status", status),
-			slog.String("method", method),
-			slog.String("path", path),
-			slog.String("query", query),
-			slog.Duration("latency", latency),
-			slog.String("request_id", reqIDStr),
-			slog.String("trace_id", traceID),
-			slog.String("span_id", spanID),
+		fullPath := path
+		if rawQuery != "" {
+			fullPath = path + "?" + rawQuery
+		}
+
+		// 1. Send structured log record to OpenTelemetry & slog logger
+		if logger != nil {
+			logger.Info("HTTP Request",
+				slog.Int("status", status),
+				slog.String("method", method),
+				slog.String("path", fullPath),
+				slog.Duration("latency", latency),
+				slog.String("client_ip", clientIP),
+				slog.String("request_id", reqIDStr),
+				slog.String("trace_id", traceID),
+				slog.String("span_id", spanID),
+			)
+		}
+
+		// 2. Format a beautiful colored GINBOOT request log for the console
+		statusColor := getStatusColor(status)
+		methodColor := getMethodColor(method)
+		resetColor := "\033[0m"
+
+		traceInfo := ""
+		if traceID != "" {
+			traceInfo = fmt.Sprintf(" | trace_id=%s", traceID)
+		}
+
+		fmt.Fprintf(gin.DefaultWriter, "[GINBOOT] %s |%s %3d %s| %13v | %15s |%s %-7s %s %s%s\n",
+			start.Format("2006/01/02 - 15:04:05"),
+			statusColor, status, resetColor,
+			latency,
+			clientIP,
+			methodColor, method, resetColor,
+			fullPath,
+			traceInfo,
 		)
+	}
+}
+
+func getStatusColor(code int) string {
+	switch {
+	case code >= 200 && code < 300:
+		return "\033[97;42m" // White text on Green background
+	case code >= 300 && code < 400:
+		return "\033[97;43m" // White text on Yellow background
+	case code >= 400 && code < 500:
+		return "\033[97;43m" // White text on Yellow background
+	default:
+		return "\033[97;41m" // White text on Red background
+	}
+}
+
+func getMethodColor(method string) string {
+	switch method {
+	case "GET":
+		return "\033[97;44m" // White text on Blue background
+	case "POST":
+		return "\033[97;42m" // White text on Green background
+	case "PUT":
+		return "\033[97;43m" // White text on Yellow background
+	case "DELETE":
+		return "\033[97;41m" // White text on Red background
+	case "PATCH":
+		return "\033[97;45m" // White text on Magenta background
+	default:
+		return "\033[97;46m" // White text on Cyan background
 	}
 }

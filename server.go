@@ -3,6 +3,8 @@ package ginboot
 import (
 	"fmt"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	"log/slog"
@@ -24,9 +26,21 @@ type Server struct {
 	logger      Logger
 }
 
+func init() {
+	// Customize route debug printing for Ginboot framework
+	gin.DebugPrintRouteFunc = func(httpMethod, absolutePath, handlerName string, nuHandlers int) {
+		if gin.Mode() == gin.DebugMode {
+			fmt.Printf("[GINBOOT-debug] %-6s %-45s (%d handlers)\n", httpMethod, absolutePath, nuHandlers)
+		}
+	}
+}
+
 func New() *Server {
+	engine := gin.New()
+	engine.Use(gin.Recovery())
+
 	return &Server{
-		engine: gin.Default(),
+		engine: engine,
 		logger: NewSlogLogger(slog.Default()), // Set a default logger
 	}
 }
@@ -40,7 +54,31 @@ func IsExportingSwagger() bool {
 	return os.Getenv("GINBOOT_EXPORT_SWAGGER") != ""
 }
 
+func (s *Server) registerDefaultHealthRoutes() {
+	healthHandler := func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status":    "UP",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"service":   "ginboot",
+		})
+	}
+
+	s.engine.GET("/healthz", healthHandler)
+	s.engine.GET("/health", healthHandler)
+
+	if s.basePath != "" && s.basePath != "/" {
+		p := s.basePath
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		s.engine.GET(path.Join(p, "healthz"), healthHandler)
+		s.engine.GET(path.Join(p, "health"), healthHandler)
+	}
+}
+
 func (s *Server) Start(port int) error {
+	s.registerDefaultHealthRoutes()
+
 	exportPath := os.Getenv("GINBOOT_EXPORT_SWAGGER")
 	if exportPath != "" {
 		err := exportOpenAPISpec(exportPath)
