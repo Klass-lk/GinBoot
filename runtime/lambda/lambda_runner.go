@@ -2,6 +2,9 @@ package lambda
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
+
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	ginadapter "github.com/awslabs/aws-lambda-go-api-proxy/gin"
@@ -11,10 +14,29 @@ import (
 
 func NewRunner() ginboot.Runner {
 	return func(engine *gin.Engine) error {
-		ginLambda := ginadapter.New(engine)
+		ginLambdaV1 := ginadapter.New(engine)
+		ginLambdaV2 := ginadapter.NewV2(engine)
 
-		handler := func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-			return ginLambda.ProxyWithContext(ctx, req)
+		handler := func(ctx context.Context, req json.RawMessage) (interface{}, error) {
+			reqStr := string(req)
+			if strings.Contains(reqStr, `"version":"2.0"`) || strings.Contains(reqStr, `"version": "2.0"`) {
+				var v2Req events.APIGatewayV2HTTPRequest
+				if err := json.Unmarshal(req, &v2Req); err == nil && v2Req.Version == "2.0" {
+					return ginLambdaV2.ProxyWithContext(context.Background(), v2Req)
+				}
+			}
+
+			var v1Req events.APIGatewayProxyRequest
+			if err := json.Unmarshal(req, &v1Req); err == nil && (v1Req.HTTPMethod != "" || v1Req.Resource != "") {
+				return ginLambdaV1.ProxyWithContext(context.Background(), v1Req)
+			}
+
+			var v2Req events.APIGatewayV2HTTPRequest
+			if err := json.Unmarshal(req, &v2Req); err == nil && v2Req.RequestContext.HTTP.Method != "" {
+				return ginLambdaV2.ProxyWithContext(context.Background(), v2Req)
+			}
+
+			return ginLambdaV1.ProxyWithContext(context.Background(), v1Req)
 		}
 
 		lambda.Start(handler)

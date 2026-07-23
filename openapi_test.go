@@ -1,6 +1,7 @@
 package ginboot
 
 import (
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -70,12 +71,106 @@ func TestOpenAPI_AddRoute(t *testing.T) {
 }
 
 func TestOpenAPI_Export(t *testing.T) {
+	tmpFile := "test_swagger.json"
+	t.Cleanup(func() {
+		os.Remove(tmpFile)
+	})
+
 	// First make sure the route is registered
 	handler := func(c *Context) (mockUserResponse, error) {
 		return mockUserResponse{}, nil
 	}
 	registerOpenAPIRoute("GET", "/test", reflect.TypeOf(handler))
 
-	err := exportOpenAPISpec("test_swagger.json")
+	err := exportOpenAPISpec(tmpFile)
 	assert.NoError(t, err)
+
+	// Test export failure
+	errInvalid := exportOpenAPISpec("/invalid_dir_path_xyz/swagger.json")
+	assert.Error(t, errInvalid)
 }
+
+type RecursiveStruct struct {
+	Name string           `json:"name"`
+	Self *RecursiveStruct `json:"self"`
+}
+
+type DeletedAt struct{}
+
+type SpecialTypesStruct struct {
+	Count      int                    `json:"count"`
+	Price      float64                `form:"price"`
+	Active     bool                   `json:"active"`
+	unexported string                 // unexported field (lowercase)
+	Ignored    string                 `json:"-"`
+	Untagged   string                 // no tag
+	Metadata   map[string]interface{} `json:"metadata"`
+	AnyData    interface{}            `json:"any_data"`
+	DeletedAt  DeletedAt              `json:"deleted_at"`
+	Ch         chan int               `json:"ch"`
+}
+
+func TestOpenAPI_BuildSchema_Types(t *testing.T) {
+	t.Run("nil type", func(t *testing.T) {
+		schema := buildSchema(nil)
+		assert.Equal(t, "object", schema.Type)
+	})
+
+	t.Run("recursive type", func(t *testing.T) {
+		schema := buildSchema(reflect.TypeOf(RecursiveStruct{}))
+		assert.Equal(t, "object", schema.Type)
+		assert.NotNil(t, schema.Properties["self"])
+		assert.Equal(t, "object", schema.Properties["self"].Type)
+	})
+
+	t.Run("special types and fields", func(t *testing.T) {
+		schema := buildSchema(reflect.TypeOf(SpecialTypesStruct{}))
+		assert.Equal(t, "object", schema.Type)
+		assert.Equal(t, "integer", schema.Properties["count"].Type)
+		assert.Equal(t, "number", schema.Properties["price"].Type)
+		assert.Equal(t, "boolean", schema.Properties["active"].Type)
+		assert.Equal(t, "string", schema.Properties["untagged"].Type)
+		assert.Equal(t, "object", schema.Properties["metadata"].Type)
+		assert.Equal(t, "object", schema.Properties["any_data"].Type)
+		assert.Equal(t, "string", schema.Properties["deleted_at"].Type)
+		assert.Equal(t, "date-time", schema.Properties["deleted_at"].Format)
+		assert.Equal(t, "string", schema.Properties["ch"].Type)
+
+		// Check that unexported and ignored fields are omitted
+		assert.Nil(t, schema.Properties["unexported"])
+		assert.Nil(t, schema.Properties["ignored"])
+	})
+
+	t.Run("buildParameters for struct with form tag and ignored field", func(t *testing.T) {
+		type QueryReq struct {
+			Search  string `form:"q"`
+			Page    int    `json:"page"`
+			Ignored string `form:"-"`
+		}
+		params := buildParameters(reflect.TypeOf(QueryReq{}))
+		assert.Len(t, params, 2)
+		assert.Equal(t, "q", params[0].Name)
+		assert.Equal(t, "page", params[1].Name)
+	})
+
+	t.Run("buildParameters for non-struct", func(t *testing.T) {
+		params := buildParameters(reflect.TypeOf("string"))
+		assert.Empty(t, params)
+	})
+}
+
+func TestOpenAPI_RegisterRouteWithExportEnv(t *testing.T) {
+	tmpFile := "test_env_swagger.json"
+	t.Setenv("GINBOOT_EXPORT_SWAGGER", tmpFile)
+	t.Cleanup(func() {
+		os.Remove(tmpFile)
+	})
+
+	handler := func(c *Context) (string, error) {
+		return "ok", nil
+	}
+	registerOpenAPIRoute("GET", "/env-test", reflect.TypeOf(handler))
+
+	assert.NotNil(t, openApiSpec.Paths["/env-test"])
+}
+
