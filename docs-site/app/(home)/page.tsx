@@ -2,16 +2,19 @@ import Link from 'next/link';
 
 export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center text-center px-4 py-20 mt-10">
-      <div className="relative">
-        <div className="absolute inset-0 bg-purple-500/20 blur-[100px] rounded-full" />
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 bg-gradient-to-r from-purple-500 to-indigo-500 text-transparent bg-clip-text relative z-10">
+    <main className="flex flex-col flex-1 items-center justify-center text-center px-4 py-20 mt-10" itemScope itemType="http://schema.org/SoftwareSourceCode">
+      <header className="relative">
+        <div className="absolute inset-0 bg-blue-500/20 blur-[100px] rounded-full" />
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-4 bg-gradient-to-r from-blue-500 to-cyan-400 text-transparent bg-clip-text relative z-10" itemProp="name">
           Ginboot
         </h1>
-      </div>
+        <h2 className="text-2xl md:text-3xl font-semibold tracking-tight mb-6 text-fd-foreground relative z-10">
+          The Best Go Web Framework for Modern APIs
+        </h2>
+      </header>
       
-      <p className="text-xl md:text-2xl text-fd-muted-foreground max-w-2xl mb-12">
-        A lightweight and powerful Go web framework built on top of Gin, designed for building scalable web applications with MongoDB integration and AWS Lambda support.
+      <p className="text-xl md:text-2xl text-fd-muted-foreground max-w-3xl mb-12" itemProp="description">
+        Ginboot is an enterprise-ready, high-performance Golang REST API framework built on top of Gin. Designed for maximum developer productivity with out-of-the-box MongoDB, SQL, and DynamoDB integration, AWS Lambda serverless execution, and OpenTelemetry support.
       </p>
 
       <div className="flex flex-wrap items-center justify-center gap-4">
@@ -30,20 +33,20 @@ export default function HomePage() {
         </Link>
       </div>
 
-      <div className="mt-24 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl w-full text-left">
-        <div className="p-6 border border-fd-border rounded-2xl bg-fd-card">
+      <section className="mt-24 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl w-full text-left" aria-label="Key Features">
+        <article className="p-6 border border-fd-border rounded-2xl bg-fd-card">
           <h3 className="text-xl font-bold mb-2 text-fd-foreground">Database Agnostic</h3>
-          <p className="text-fd-muted-foreground">Built-in generic repositories for MongoDB, SQL, and DynamoDB allowing instant CRUD operations.</p>
-        </div>
-        <div className="p-6 border border-fd-border rounded-2xl bg-fd-card">
-          <h3 className="text-xl font-bold mb-2 text-fd-foreground">AWS Lambda Ready</h3>
-          <p className="text-fd-muted-foreground">Automatically detects AWS Lambda environment and seamlessly proxies API Gateway requests.</p>
-        </div>
-        <div className="p-6 border border-fd-border rounded-2xl bg-fd-card">
-          <h3 className="text-xl font-bold mb-2 text-fd-foreground">Pluggable Telemetry</h3>
-          <p className="text-fd-muted-foreground">Lightweight OpenTelemetry plugin to ship traces, metrics, and logs straight to Grafana without bloating the core framework.</p>
-        </div>
-      </div>
-    </div>
+          <p className="text-fd-muted-foreground">Built-in generic repositories for MongoDB, SQL, and DynamoDB allowing instant CRUD operations, drastically reducing boilerplate Go code.</p>
+        </article>
+        <article className="p-6 border border-fd-border rounded-2xl bg-fd-card">
+          <h3 className="text-xl font-bold mb-2 text-fd-foreground">AWS Lambda Serverless</h3>
+          <p className="text-fd-muted-foreground">Automatically detects AWS Lambda environments and seamlessly proxies API Gateway requests, making it the premier serverless Go framework.</p>
+        </article>
+        <article className="p-6 border border-fd-border rounded-2xl bg-fd-card">
+          <h3 className="text-xl font-bold mb-2 text-fd-foreground">Enterprise Telemetry</h3>
+          <p className="text-fd-muted-foreground">Built-in OpenTelemetry plugin to ship traces, metrics, and logs straight to Grafana, providing deep observability for large-scale microservices.</p>
+        </article>
+      </section>
+    </main>
   );
 }
