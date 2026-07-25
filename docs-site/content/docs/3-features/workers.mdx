@@ -1,0 +1,93 @@
+---
+title: "Background Workers"
+---
+
+# Background Workers
+
+Ginboot includes a built-in scheduler to manage background tasks and periodic jobs asynchronously. This allows you to offload heavy processing or run scheduled cleanups without blocking your main HTTP requests.
+
+## The Worker Interface
+
+For structured background jobs, Ginboot defines a `Worker` interface.
+
+```go
+type Worker interface {
+	Name() string
+	Interval() time.Duration
+	Execute(ctx context.Context) error
+}
+```
+
+### Creating a Worker
+
+You can create a struct that implements this interface. For example, here is a worker that cleans up stale telemetry data every hour:
+
+```go
+package workers
+
+import (
+	"context"
+	"time"
+)
+
+type TelemetryCleanupWorker struct {}
+
+func NewTelemetryCleanupWorker() *TelemetryCleanupWorker {
+	return &TelemetryCleanupWorker{}
+}
+
+func (w *TelemetryCleanupWorker) Name() string {
+	return "TelemetryCleanupWorker"
+}
+
+func (w *TelemetryCleanupWorker) Interval() time.Duration {
+	return 1 * time.Hour // Runs every 1 hour
+}
+
+func (w *TelemetryCleanupWorker) Execute(ctx context.Context) error {
+	// Execute your background task logic here
+	// e.g. db.Exec("DELETE FROM logs WHERE created_at < NOW() - INTERVAL '7 days'")
+	return nil
+}
+```
+
+## Registering Workers
+
+Once you have defined your worker, you can register it with the Ginboot Engine before calling `app.Start()`.
+
+```go
+package main
+
+import (
+	"github.com/klass-lk/ginboot"
+	"github.com/my-project/workers"
+)
+
+func main() {
+	app := ginboot.New()
+
+	// Registering a structured worker
+	app.RegisterWorkerStruct(workers.NewTelemetryCleanupWorker())
+
+	app.Start(8080)
+}
+```
+
+### Simple Inline Workers
+
+If you don't need a full struct and just want to run a simple function periodically, you can use `RegisterWorker`:
+
+```go
+import "time"
+import "context"
+import "log"
+
+app.RegisterWorker("SimpleLogger", 10 * time.Second, func(ctx context.Context) error {
+	log.Println("10 seconds have passed!")
+	return nil
+})
+```
+
+## AWS Lambda Compatibility
+
+When running in an AWS Lambda environment via `lambdarunner.NewRunnerWithScheduler`, these background workers can be triggered automatically by EventBridge (CloudWatch Events) using cron schedules!

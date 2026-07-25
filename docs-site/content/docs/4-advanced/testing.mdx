@@ -1,0 +1,75 @@
+---
+title: "Testing & BDD"
+---
+
+# BDD Testing Framework
+
+Ginboot seamlessly integrates with [Godog](https://github.com/cucumber/godog) to provide an incredibly powerful Behavior-Driven Development (BDD) testing framework out of the box.
+
+This allows you to write tests in plain English using Gherkin syntax and have Ginboot's automated step definitions execute them against your API.
+
+## The TestSuite
+
+Ginboot provides a `TestSuite` struct which wires up your `gin.Engine`, in-memory HTTP recorders, and Database Seeders.
+
+```go
+package tests
+
+import (
+	"testing"
+	"github.com/klass-lk/ginboot"
+	"github.com/my-project/api"
+)
+
+func TestAPI(t *testing.T) {
+	// 1. Initialize your normal Ginboot App
+	app := api.SetupApp()
+
+	// 2. Create the TestSuite
+	suite := &ginboot.TestSuite{
+		Router:    app.Engine(),
+		DbSeeders: make(map[string]ginboot.DBSeeder),
+	}
+
+	// 3. Register your generic DB seeders for testing
+	// genericSeeder := ginboot.NewGenericDBSeeder(...)
+	// suite.RegisterDBSeeder("users", genericSeeder)
+
+	// 4. Run the BDD tests
+	ginboot.TestFeatures(t, suite)
+}
+```
+
+## Writing Gherkin Features
+
+In your `features/` directory, you can write standard Cucumber features. Ginboot has built-in step definitions that automatically parse HTTP methods, paths, bodies, and assert JSON responses!
+
+```gherkin
+Feature: User Login
+
+  Background: Setup Database
+    # This automatically uses your registered DBSeeder to inject data!
+    Given document "users" has the following items
+      | id  | email          | password | role  |
+      | 123 | test@test.com  | p4ssw0rd | admin |
+
+  Scenario: Successful Login
+    When I send a POST request to "/api/v1/auth/login" with body
+      | email         | password |
+      | test@test.com | p4ssw0rd |
+    Then the response status should be 200
+    And the response should contain an item with
+      | token |
+      | ...   |
+```
+
+## Available Step Definitions
+
+The `ginboot.TestSuite` comes with the following steps pre-wired:
+
+- `Given document "[collection]" has the following items`
+- `When I send a [GET/POST/PUT/DELETE] request to "[path]" with body`
+- `When I send an authenticated GET request to "[path]"`
+- `Then the response status should be [status_code]`
+- `Then the response "[field]" field is stored as "[key]"` (Extracts JWTs or IDs for later steps)
+- `Then the response should contain an item with [table]` (Deep JSON assertion)

@@ -1,0 +1,56 @@
+---
+title: "Getting Started"
+---
+
+# Getting Started with Ginboot
+
+Ginboot is a robust Go web framework built on top of the popular Gin framework, designed to accelerate the development of production-ready microservices and APIs. It comes with built-in support for different databases, telemetry, and AWS Lambda deployments.
+
+## 🚀 The Easiest Way: start.ginboot.com
+
+The fastest way to scaffold a new Ginboot project is using our official generator.
+
+![start.ginboot.com UI](/images/start_ginboot.png)
+
+1. Navigate to [start.ginboot.com](https://start.ginboot.com).
+2. Enter your project name.
+3. Select your preferred database (e.g., PostgreSQL, MongoDB, MySQL).
+4. Toggle on any features you need (Telemetry, Jaeger Tracing, Grafana).
+5. Click **Generate Project** to download a ready-to-run `.zip` boilerplate.
+
+Once downloaded, extract the files and run:
+```bash
+go mod tidy
+go run main.go
+```
+
+## Manual Installation
+
+Alternatively, you can install Ginboot in an existing Go project using `go get`:
+
+```bash
+go get -u github.com/klass-lk/ginboot
+```
+
+### Basic Example
+
+Here is a simple example to start a basic HTTP server:
+
+```go
+package main
+
+import (
+	"log"
+	"github.com/klass-lk/ginboot"
+)
+
+func main() {
+	app := ginboot.New()
+	app.SetBasePath("/api/v1")
+
+	// Start the server on port 8080
+	if err := app.Start(8080); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
+}
+```

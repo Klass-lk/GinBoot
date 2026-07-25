@@ -1,0 +1,60 @@
+---
+title: "OpenAPI & Swagger"
+---
+
+# Swagger and OpenAPI 3.0 Support
+
+Ginboot comes with built-in reflection-based OpenAPI 3.0 schema generation. It inspects your controllers, request bodies, query parameters, and response structs to automatically build an accurate OpenAPI JSON specification.
+
+## How it works
+
+When you define your Ginboot controllers, the framework dynamically inspects the Types of the arguments passed to your handler methods. 
+
+For instance, if your method signature takes a `*CreateUserRequest` struct, Ginboot parses its `json` and `form` tags and automatically maps them to OpenAPI parameters and requestBody definitions.
+
+## Exporting the Specification
+
+To export the generated Swagger specification locally, simply start your Ginboot application with the `GINBOOT_EXPORT_SWAGGER` environment variable set to your desired output path.
+
+```bash
+GINBOOT_EXPORT_SWAGGER=./docs/swagger.json go run main.go
+```
+
+The framework will generate the spec at startup:
+
+```json
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Ginboot Application API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/users": {
+      "post": {
+        "summary": "",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": { "type": "string" },
+                  "email": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+You can then serve this file using a Swagger UI docker container or any API documentation portal.

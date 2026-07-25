@@ -1,0 +1,60 @@
+---
+title: "Error Handling"
+---
+
+# Error Handling
+
+Ginboot provides a clean, standardized approach to error handling across your microservices using the `ApiError` interface and the `SendError` utility.
+
+## The `ApiError` Struct
+
+To ensure consistency in API responses, Ginboot defines an `ApiError` struct containing an `error_code` and a `message`.
+
+```go
+type ApiError struct {
+	ErrorCode string `json:"error_code"`
+	Message   string `json:"message"`
+}
+```
+
+### Creating Custom Errors
+
+You can define reusable domain errors within your application using `ginboot.NewApiError(httpStatusCode, message)`:
+
+```go
+import "github.com/klass-lk/ginboot"
+
+var (
+	ErrUserNotFound = ginboot.NewApiError(404, "User with ID %s not found")
+	ErrInvalidInput = ginboot.NewApiError(400, "Invalid input provided")
+)
+```
+
+You can then format these errors dynamically at runtime:
+
+```go
+// Creates an ApiError with Message: "User with ID 123 not found"
+err := ErrUserNotFound.New("123")
+```
+
+## Sending Errors in Controllers
+
+When an error occurs in your controller, you can use `ginboot.SendError(c, err)` to automatically format and send the response back to the client.
+
+```go
+func (c *UserController) GetUser(ctx *gin.Context) {
+	userId := ctx.Param("id")
+	
+	user, err := c.UserService.FindById(userId)
+	if err != nil {
+		// Automatically maps the HTTP status code from the ApiError
+		// and sends `{ "error_code": "404", "message": "User with ID 123 not found" }`
+		ginboot.SendError(ctx, ErrUserNotFound.New(userId))
+		return
+	}
+
+	ctx.JSON(200, user)
+}
+```
+
+If a standard Go `error` (not an `ApiError`) is passed to `SendError`, Ginboot will safely wrap it in a 500 Internal Server Error response to prevent exposing stack traces to clients.
