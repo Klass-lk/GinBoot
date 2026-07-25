@@ -91,50 +91,26 @@ server.SetBasePath("/api/v1") // All routes will be prefixed with /api/v1
 
 Ginboot allows you to organize routes into groups, which can share a common path prefix and middleware. You can create groups at the server level or nested within other `ControllerGroup`s.
 
-#### Server-Level Groups
+### Controller-Level Groups
 
-Use `server.Group()` to create a new `ControllerGroup`.
+Ginboot strongly recommends that all routes are registered *only* within a Controller. Do not register routes directly on the server instance in `main.go`. Instead, use `group.Group()` inside your controller's `Register` method.
 
-```go
-package main
+#### Nested Route Groups
 
-import (
-	"log"
-	"github.com/gin-gonic/gin"
-	"github.com/klass-lk/ginboot"
-	"your-project/internal/middleware"
-)
-
-func healthCheck() (string, error) {
-	return "OK", nil
-}
-
-func main() {
-	server := ginboot.New()
-
-	// Create an API group with shared middleware
-	apiGroup := server.Group("/api", middleware.Auth())
-	{
-		v1Group := apiGroup.Group("/v1")
-		{
-			v1Group.GET("/health", healthCheck)
-		}
-	}
-
-	log.Fatal(server.Start(8080))
-}
-```
-
-#### Nested Groups
-
-You can create nested groups using the `Group` method on an existing `ControllerGroup`.
+You can create nested groups with shared middleware using the `Group` method on an existing `ControllerGroup`. This is perfect for versioning or applying specific middleware like authentication.
 
 ```go
-protected := group.Group("", middleware.Auth())
-{
-    protected.POST("", c.CreateUser)
-    protected.PUT("/:id", c.UpdateUser)
-    protected.DELETE("/:id", c.DeleteUser)
+func (c *AdminController) Register(group *ginboot.ControllerGroup) {
+    // Standard unauthenticated route
+    group.GET("/ping", c.Ping)
+    
+    // Create a protected sub-group using middleware
+    protected := group.Group("/v1", middleware.Auth(), middleware.AdminOnly())
+    {
+        protected.POST("/users", c.CreateUser)
+        protected.PUT("/users/:id", c.UpdateUser)
+        protected.DELETE("/users/:id", c.DeleteUser)
+    }
 }
 ```
 
