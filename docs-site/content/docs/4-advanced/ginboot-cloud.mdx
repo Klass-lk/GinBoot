@@ -1,0 +1,23 @@
+---
+title: "Ginboot Cloud"
+---
+
+# Ginboot Cloud Support
+
+Ginboot Cloud is our official SaaS platform designed to remove all DevOps friction from managing your Ginboot microservices. 
+
+It provides an integrated dashboard for zero-downtime deployments, real-time environment variable management, and centralized log streaming for all your applications.
+
+![Ginboot Cloud](/images/ginboot_cloud.png)
+
+## Why use Ginboot Cloud?
+
+- **1-Click Deployments:** Connect your GitHub repositories and deploy your Ginboot applications instantly without writing Dockerfiles or Kubernetes manifests.
+- **Environment Management:** Manage secrets and environment variables securely across Staging, Production, and Preview environments directly from the dashboard.
+- **Log Streaming:** View live server logs instantly without SSH-ing into instances.
+- **Automated Webhooks:** Set up custom CI/CD pipelines using our Webhook triggers (`/api/v1/webhooks`).
+- **Telemetry Integration:** Works natively with Ginboot's OTLP exporter (`/v1/logs`, `/v1/metrics`) to aggregate and visualize your metrics automatically.
+
+## Agent Integration
+
+For hybrid-cloud deployments, you can install the Ginboot Agent on your own AWS EC2 instances or Kubernetes clusters. The agent polls Ginboot Cloud for deployment instructions and executes them securely within your VPC.

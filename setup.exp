@@ -1,0 +1,16 @@
+#!/usr/bin/expect -f
+set timeout 180
+spawn npx -y create-fumadocs-app@latest docs-site
+sleep 5
+send "\r"
+sleep 3
+send "\r"
+sleep 3
+send "\r"
+sleep 3
+send "\r"
+sleep 3
+send "\r"
+sleep 3
+send "\r"
+expect eof

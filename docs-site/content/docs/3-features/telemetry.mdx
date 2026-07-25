@@ -1,0 +1,60 @@
+---
+title: "Telemetry & Observability"
+---
+
+# Telemetry and Observability
+
+Ginboot provides a unified `telemetry` package to automatically trace requests, collect metrics, and stream logs directly to your observability backend (like Grafana, Jaeger, or Ginboot Cloud).
+
+![Telemetry Dashboard](/images/telemetry_dashboard.png)
+
+## Setting up Telemetry
+
+To initialize OpenTelemetry in your Ginboot app, call `telemetry.Setup()` and `telemetry.Instrument()` before starting the engine.
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"github.com/klass-lk/ginboot"
+	"github.com/klass-lk/ginboot/telemetry"
+)
+
+func main() {
+	app := ginboot.New()
+
+	// 1. Setup global OpenTelemetry pipelines
+	shutdown, err := telemetry.Setup(context.Background(), "my-microservice", "v1.0.0")
+	if err != nil {
+		log.Printf("Failed to setup telemetry: %v", err)
+	}
+	// Ensure pipelines are flushed upon exit
+	defer func() {
+		if shutdown != nil {
+			_ = shutdown(context.Background())
+		}
+	}()
+
+	// 2. Instrument the Gin Engine (injects tracing middlewares)
+	telemetry.Instrument(app, "my-microservice", nil)
+
+	app.Start(8080)
+}
+```
+
+## How It Works
+
+- **Distributed Tracing**: Automatically injects standard W3C Trace Context headers into incoming and outgoing requests.
+- **Metrics**: Exposes HTTP request duration, error rates, and system memory metrics.
+- **Context-Bound Logging**: If you use `ctx.Logger().Info("Hello")` within your Ginboot controllers, the log entry is automatically enriched with the active `trace_id` and `span_id`.
+
+## OTLP Exporting
+
+Ginboot uses the standard OpenTelemetry Protocol (OTLP). You can direct the telemetry data to any collector by setting standard environment variables before running your app:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer my-token"
+```

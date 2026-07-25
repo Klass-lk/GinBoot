@@ -129,7 +129,6 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 				log.WithProcessor(logProcessor),
 			)
 		}
-		}
 	} else {
 		loggerProvider = log.NewLoggerProvider(
 			log.WithResource(res),

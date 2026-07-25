@@ -1,0 +1,76 @@
+---
+title: "S3 Storage Services"
+---
+
+# File Storage & Amazon S3 Integration
+
+Ginboot abstracts file uploading and management through its `FileService` interface. You can bind an AWS S3 File Service to your application, which automatically handles uploading files to S3 buckets or falling back to a local disk directory.
+
+## Initializing the S3 File Service
+
+To attach file upload capabilities, initialize the `s3.NewS3FileService` and bind it to your engine.
+
+```go
+package main
+
+import (
+	"context"
+	"github.com/klass-lk/ginboot"
+	"github.com/klass-lk/ginboot/storage/s3"
+)
+
+func main() {
+	app := ginboot.New()
+	
+	// Create the S3 file service
+	// The service requires the bucket name, a local fallback path, 
+	// AWS credentials (or IAM roles if empty), region, and a pre-signed URL expiration time.
+	fileService := s3.NewS3FileService(
+		context.Background(),
+		"my-app-bucket-name",
+		"uploads/",           // Local fallback path if AWS keys aren't provided
+		"AWS_ACCESS_KEY",     // Leave empty to use IAM / Default Provider Chain
+		"AWS_SECRET_KEY",     
+		"ap-southeast-1",
+		"3600",               // Default expiration for signed URLs (in seconds)
+	)
+
+	// Bind it to the Ginboot Engine
+	app.BindFileService(fileService)
+
+	app.Start(8080)
+}
+```
+
+## Using the File Service in Controllers
+
+Once bound, you can retrieve the file service from the Gin context inside any controller using `ginboot.GetFileService(ctx)`.
+
+```go
+import "github.com/klass-lk/ginboot"
+
+func (c *MediaController) UploadAvatar(ctx *gin.Context) {
+	file, err := ctx.FormFile("avatar")
+	if err != nil {
+		ginboot.SendError(ctx, ErrInvalidInput.New("No file uploaded"))
+		return
+	}
+
+	fs := ginboot.GetFileService(ctx)
+
+	// Upload the file to the S3 Bucket (or local path)
+	// Returns a unique key/URL depending on the implementation
+	uploadPath, err := fs.Upload(ctx, file)
+	if err != nil {
+		ginboot.SendError(ctx, ErrUploadFailed)
+		return
+	}
+
+	ctx.JSON(200, gin.H{
+		"message": "Avatar uploaded successfully",
+		"url": uploadPath,
+	})
+}
+```
+
+This abstraction ensures that your business logic remains completely unaware of whether it is running locally or in a cloud environment.

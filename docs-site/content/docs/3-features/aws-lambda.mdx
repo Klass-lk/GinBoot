@@ -1,0 +1,90 @@
+---
+title: "AWS Lambda Support"
+---
+
+# Serverless AWS Lambda Deployment
+
+One of Ginboot's most powerful features is its seamless ability to switch between a traditional HTTP server and an AWS Lambda execution environment without modifying your controllers or business logic.
+
+![AWS Lambda Architecture](/images/aws_lambda_arch.png)
+
+## How It Works
+
+Ginboot automatically detects the AWS Lambda runtime environment variables. If present, it wraps the Gin Engine with the `aws-lambda-go-api-proxy` adapter.
+
+```go
+package main
+
+import (
+	"log"
+	"os"
+	"github.com/klass-lk/ginboot"
+	lambdarunner "github.com/klass-lk/ginboot/runtime/lambda"
+)
+
+func main() {
+	app := ginboot.New()
+	
+	// Setup your routes and dependencies...
+	app.SetBasePath("/api")
+
+	// Detect if running inside AWS Lambda
+	if os.Getenv("LAMBDA_TASK_ROOT") != "" || os.Getenv("AWS_EXECUTION_ENV") != "" {
+		log.Println("Detected AWS Lambda environment...")
+		// Optionally attach the Ginboot Scheduler for cron events
+		app.SetRunner(lambdarunner.NewRunnerWithScheduler(app.Scheduler()))
+	}
+
+	// In Lambda, this will block and handle API Gateway proxy events.
+	// Locally, this will start a normal HTTP server on port 8080.
+	if err := app.Start(8080); err != nil {
+		log.Fatalf("Failed to start: %v", err)
+	}
+}
+```
+
+## AWS SAM Configuration
+
+To deploy your Ginboot application using AWS Serverless Application Model (SAM), you simply need a `template.yaml`.
+
+```yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Ginboot Serverless Application
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: provided.al2
+    Architectures:
+      - arm64
+
+Resources:
+  GinbootAPI:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: bin/
+      Handler: bootstrap # Go binaries in provided.al2 must be named bootstrap
+      Environment:
+        Variables:
+          GIN_MODE: release
+      Events:
+        CatchAll:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+```
+
+To build and deploy:
+
+```bash
+# Build the binary for AL2 ARM64
+GOOS=linux GOARCH=arm64 go build -o bin/bootstrap main.go
+
+# Deploy using SAM
+sam deploy --guided
+```
+
+This single-binary deployment makes Ginboot extremely cost-effective, leveraging Go's incredibly fast cold-start times on AWS Lambda.

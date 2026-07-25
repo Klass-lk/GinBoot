@@ -1,0 +1,13 @@
+{
+  "title": "Features",
+  "pages": [
+    "aws-lambda",
+    "database",
+    "storage-s3",
+    "telemetry",
+    "openapi-swagger",
+    "workers",
+    "authentication",
+    "caching"
+  ]
+}
