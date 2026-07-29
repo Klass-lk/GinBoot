@@ -1,8 +1,10 @@
 ---
 title: "Inter-Service Communication"
+description: "Call other services by logical name with ctx.CallService, with automatic resolution, trace propagation and async fire-and-forget support."
+icon: Network
 ---
 
-# Inter-Service Communication
+<Since v="1.1.0" />
 
 Ginboot provides a high-level, protocol-agnostic service-to-service communication layer. Developers can invoke other microservices or serverless functions using logical service identifiers directly on `ginboot.Context` without handling transport details, JSON serialization, or header propagation manually.
 
@@ -60,7 +62,12 @@ func (c *OrderController) CreateOrder(ctx *ginboot.Context, req CreateOrderReque
 
 ## 2. HTTP Method Overrides
 
-By default, `CallService` and `CallServiceAsync` use HTTP `POST`. You can specify a custom HTTP method (GET, PUT, DELETE, PATCH) using:
+<Callout type="warn" title="The default verb is POST">
+  `CallService` and `CallServiceAsync` issue a `POST` unless you say otherwise. Read-only calls
+  should use the `WithMethod` variants below, or you'll `POST` to a `GET` endpoint and get a 405.
+</Callout>
+
+You can specify a custom HTTP method (GET, PUT, DELETE, PATCH) using:
 
 ```go
 // Synchronous GET
@@ -76,7 +83,7 @@ err := ctx.CallServiceAsyncWithMethod("DELETE", "cache-service", "/api/v1/cache/
 
 Target endpoints are resolved automatically at runtime using `ServiceResolver`:
 
-1. **`ginboot.yml` Mapping**: Reads endpoint URLs configured under `ginboot.services.<service-name>.url`.
+1. **`ginboot.yml` Mapping**: Reads endpoint URLs configured under `ginboot.services.<service-name>.url` — see [Configuration](/docs/2-core-concepts/configuration#2-declarative-ginbootyml--applicationyml-file) for the full file layout.
 2. **Ginboot Cloud UI & Environment Variables**: Automatically checks environment variable `SERVICE_<NAME>_URL` (e.g. `SERVICE_USER_SERVICE_URL=https://user-service.cloud.internal`).
 3. **Local Fallback**: Defaults to `http://<service-name>:8080` for local Docker/K8s development.
 

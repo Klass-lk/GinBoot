@@ -1,25 +1,46 @@
 ---
-title: Introduction
-description: Welcome to the Ginboot documentation
+title: "Introduction"
+description: "Ginboot is an enterprise-ready Go web framework built on Gin, with database-agnostic repositories, AWS Lambda support and OpenTelemetry built in."
+icon: Book
 ---
 
-# Welcome to Ginboot
+Ginboot is a lightweight and powerful Go web framework built on top of Gin. It takes the Spring Boot approach — opinionated defaults, batteries included — and applies it to Go, so you can go from an empty directory to a production-ready API without assembling the plumbing yourself.
 
-Ginboot is a lightweight and powerful Go web framework built on top of Gin, designed for building scalable web applications with MongoDB integration and AWS Lambda support.
+<Callout type="info">
+  New here? The [Getting Started](/docs/1-getting-started) guide takes about five minutes, and
+  [start.ginboot.com](https://start.ginboot.com) will scaffold a project for you.
+</Callout>
 
-## Getting Started
+## Start here
 
-To get started, head over to the [Quick Start](/docs/1-getting-started) guide.
+<Cards>
+  <Card
+    title="Getting Started"
+    href="/docs/1-getting-started"
+    description="Scaffold a project or install Ginboot into an existing Go module, then run your first server."
+  />
+  <Card
+    title="Core Concepts"
+    href="/docs/2-core-concepts/server"
+    description="The server lifecycle, declarative configuration, controller-based routing and error handling."
+  />
+  <Card
+    title="Features"
+    href="/docs/3-features/database"
+    description="Databases, authentication, caching, service-to-service calls, Lambda, telemetry and more."
+  />
+  <Card
+    title="Advanced & Operations"
+    href="/docs/4-advanced/deployment"
+    description="BDD testing, deploying to AWS Lambda with SAM, Ginboot Cloud, and release notes."
+  />
+</Cards>
 
-## Key Features
+## Why Ginboot
 
-- **Database Agnostic**: Built-in multi-database support (MongoDB, SQL, DynamoDB) through a generic repository interface, enabling common CRUD operations with minimal code.
-- **Pluggable Telemetry**: Optional, lightweight OpenTelemetry plugin (`ginboot/telemetry`) to ship traces, metrics, and logs straight to Grafana (or any OTLP backend) without bloating the core framework.
-- **Context-Bound Logger**: A pluggable, context-aware logger (`ctx.Logger().Info(...)`) that automatically correlates logs with active distributed traces.
-- **AWS Lambda Ready**: Seamlessly deploy to AWS Lambda with API Gateway proxy requests handled automatically.
-
-## Explore the Docs
-
-- [Core Concepts](/docs/2-core-concepts/server)
-- [Features](/docs/3-features/database)
-- [Advanced](/docs/4-advanced/telemetry)
+- **Database agnostic** — a single `GenericRepository[T]` interface over MongoDB, SQL and DynamoDB, giving you CRUD and pagination with almost no code. See [Database Support](/docs/3-features/database).
+- **Runs anywhere** — the same controllers serve HTTP locally and API Gateway events on AWS Lambda, with the runtime detected automatically. See [AWS Lambda Support](/docs/3-features/aws-lambda).
+- **Declarative configuration** — `ginboot.yml` plus automatic `.env` loading and environment variable injection, read back through a typed `server.Config()`. See [Configuration](/docs/2-core-concepts/configuration).
+- **Pluggable telemetry** — an optional OpenTelemetry plugin (`ginboot/telemetry`) ships traces, metrics and logs to Grafana or any OTLP backend without bloating the core. See [Telemetry](/docs/3-features/telemetry).
+- **Context-bound logger** — `ctx.Logger().Info(...)` correlates every log line with the active distributed trace.
+- **Service-to-service calls** — `ctx.CallService(...)` resolves targets from config, environment or DNS and propagates W3C trace and auth headers. See [Inter-Service Communication](/docs/3-features/service-communication).

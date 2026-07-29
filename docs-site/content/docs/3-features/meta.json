@@ -1,14 +1,16 @@
 {
   "title": "Features",
+  "description": "Databases, Lambda, telemetry, auth and more",
+  "icon": "Boxes",
   "pages": [
+    "database",
+    "authentication",
+    "caching",
     "service-communication",
     "aws-lambda",
-    "database",
-    "storage-s3",
     "telemetry",
-    "openapi-swagger",
+    "storage-s3",
     "workers",
-    "authentication",
-    "caching"
+    "openapi-swagger"
   ]
 }

@@ -1,6 +1,263 @@
 @import 'tailwindcss';
-@import 'fumadocs-ui/css/ocean.css';
+@import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
+
+/* ---------------------------------------------------------------------------
+   Brand tokens.
+
+   Ported verbatim from the Ginboot Cloud frontend (`frontend/src/index.css`)
+   so the docs, the platform and the initializer read as one product. Change
+   values there first, then mirror them here.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --background: 210 40% 98%;
+  --foreground: 224 12% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 224 12% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 224 12% 10%;
+  /* Brand cyan #00ADB5 — shared with ginboot-cloud and start.ginboot.com */
+  --primary: 183 100% 35%;
+  --primary-foreground: 185 45% 8%;
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 224 12% 10%;
+  /* accent is the hover/focus surface, not a brand colour */
+  --accent: 220 14% 94%;
+  --accent-foreground: 224 12% 10%;
+  /* Brand orange #FF5733 — secondary brand hue, decorative only */
+  --brand-orange: 11 100% 60%;
+  --destructive: 0 72% 55%;
+  --success: 152 70% 40%;
+  --warning: 38 92% 50%;
+  --border: 220 14% 90%;
+  --input: 220 14% 90%;
+  --ring: 183 100% 35%;
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: 224 12% 5%;
+  --foreground: 0 0% 95%;
+  --card: 224 12% 7.5%;
+  --card-foreground: 0 0% 95%;
+  --popover: 224 12% 7.5%;
+  --popover-foreground: 0 0% 95%;
+  --primary: 183 90% 45%;
+  --primary-foreground: 224 12% 5%;
+  --secondary: 224 10% 12%;
+  --secondary-foreground: 0 0% 95%;
+  --accent: 224 10% 15%;
+  --accent-foreground: 0 0% 95%;
+  --brand-orange: 11 100% 63%;
+  --destructive: 0 72% 55%;
+  --success: 152 70% 45%;
+  --warning: 38 92% 55%;
+  --border: 224 8% 14%;
+  --input: 224 8% 14%;
+  --ring: 183 90% 45%;
+}
+
+/* Remap fumadocs' semantic tokens onto the brand palette. This mirrors the
+   approach in `fumadocs-ui/css/shadcn.css`: preset.css declares these inside
+   `@theme` (which emits into `:root`), so a later `:root` rule wins. */
+:root,
+.dark {
+  --color-fd-background: hsl(var(--background));
+  --color-fd-foreground: hsl(var(--foreground));
+  --color-fd-muted: hsl(var(--secondary));
+  --color-fd-muted-foreground: hsl(var(--muted-foreground));
+  --color-fd-popover: hsl(var(--popover));
+  --color-fd-popover-foreground: hsl(var(--popover-foreground));
+  --color-fd-card: hsl(var(--card));
+  --color-fd-card-foreground: hsl(var(--card-foreground));
+  --color-fd-border: hsl(var(--border));
+  --color-fd-primary: hsl(var(--primary));
+  --color-fd-primary-foreground: hsl(var(--primary-foreground));
+  --color-fd-secondary: hsl(var(--secondary));
+  --color-fd-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-fd-accent: hsl(var(--accent));
+  --color-fd-accent-foreground: hsl(var(--accent-foreground));
+  --color-fd-ring: hsl(var(--ring));
+}
+
+:root {
+  --muted-foreground: 220 8% 46%;
+}
+
+.dark {
+  --muted-foreground: 224 5% 55%;
+}
+
+/* neutral.css ships a grey sidebar override; the brand palette supplies its
+   own surfaces, so unset it. */
+.dark #nd-sidebar {
+  --color-fd-muted: hsl(var(--secondary));
+  --color-fd-secondary: hsl(var(--secondary));
+  --color-fd-muted-foreground: hsl(var(--muted-foreground));
+}
+
+/* `inline` is required: it makes the generated utilities reference the CSS
+   variable rather than baking in the light-mode value, so `.dark` overrides
+   propagate through `bg-brand`, `text-brand-orange`, etc. */
+@theme inline {
+  --color-brand: hsl(var(--primary));
+  --color-brand-foreground: hsl(var(--primary-foreground));
+  --color-brand-orange: hsl(var(--brand-orange));
+
+  --font-sans: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@theme static {
+  --color-fd-error: hsl(0, 72%, 55%);
+  --color-fd-success: hsl(152, 70%, 42%);
+  --color-fd-warning: hsl(38, 92%, 50%);
+}
+
+/* --------------------------------------------------------------------------- */
+
+@layer base {
+  body {
+    /* Inter carries an opsz 14..32 axis; `auto` lets the browser pick the
+       optical cut from the computed size. Setting font-variation-settings
+       anywhere would disable this. */
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Ambient brand glows — cyan top-left, orange bottom-right. */
+  body {
+    background-image:
+      radial-gradient(ellipse 55% 45% at 8% 10%, hsla(var(--primary), 0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 45% at 94% 88%, hsla(var(--brand-orange), 0.05) 0%, transparent 60%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(ellipse 55% 45% at 8% 10%, hsla(var(--primary), 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 45% at 94% 88%, hsla(var(--brand-orange), 0.045) 0%, transparent 60%);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    letter-spacing: -0.021em;
+  }
+
+  ::selection {
+    background: hsla(var(--primary), 0.25);
+    color: hsl(var(--foreground));
+  }
+
+  .dark ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .dark ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: hsl(224 8% 20%);
+    border-radius: 3px;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: hsl(224 8% 28%);
+  }
+}
+
+@layer components {
+  /* Frosted surface, matching ginboot-cloud's card treatment. */
+  .glass-card {
+    @apply rounded-lg border border-fd-border bg-fd-card/80 shadow-sm backdrop-blur-xl;
+  }
+  .dark .glass-card {
+    @apply border-white/[0.06] bg-fd-card/60 shadow-[0_2px_20px_rgba(0,0,0,0.25)];
+  }
+
+  .glass-card-hover {
+    @apply transition-all duration-300 ease-out;
+  }
+  .glass-card-hover:hover {
+    @apply border-brand/30 shadow-[0_0_24px_-6px_hsla(var(--primary),0.15)];
+    transform: translateY(-2px);
+  }
+
+  .btn-glow {
+    position: relative;
+    box-shadow:
+      0 0 16px -4px hsla(var(--primary), 0.5),
+      0 1px 2px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease-out;
+  }
+  .btn-glow:hover {
+    box-shadow:
+      0 0 28px -4px hsla(var(--primary), 0.7),
+      0 1px 4px rgba(0, 0, 0, 0.15);
+    transform: translateY(-1px);
+  }
+  .btn-glow:active {
+    transform: translateY(0);
+    box-shadow: 0 0 12px -4px hsla(var(--primary), 0.4);
+  }
+}
+
+@utility text-gradient-primary {
+  @apply bg-gradient-to-r from-brand to-brand-orange bg-clip-text text-transparent;
+}
+
+@utility surface-grid {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    hsl(var(--foreground) / 0.04) 1px,
+    transparent 0
+  );
+  background-size: 24px 24px;
+}
+
+@keyframes gb-fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes gb-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-fade-in {
+  animation: gb-fade-in 0.4s ease-out both;
+}
+
+@utility animate-slide-up {
+  animation: gb-slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-up {
+    animation: none;
+  }
+}
 
 html {
   scrollbar-gutter: stable;

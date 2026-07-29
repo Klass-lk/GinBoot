@@ -1,8 +1,10 @@
 ---
-title: "Declarative Configuration & Environment Setup"
+title: "Configuration"
+description: "Configure Ginboot declaratively with ginboot.yml, automatic .env loading, environment variable injection and Air hot reload."
+icon: FileCog
 ---
 
-# Declarative Configuration & Environment Setup
+<Since v="1.1.0" />
 
 Ginboot provides a unified, declarative configuration system inspired by Spring Boot. Applications can be configured using a `ginboot.yml`, `application.yml`, or `ginboot.yaml` file alongside automatic `.env` environment file loading and live hot-reloading using Air.
 
@@ -12,22 +14,29 @@ Ginboot provides a unified, declarative configuration system inspired by Spring 
 
 When `ginboot.New()` initializes, it automatically checks for and loads key-value pairs from local environment files in the current working directory in the following order:
 
-1. `.env`
-2. `.env.local`
-3. `.env.development`
+<Files>
+  <File name=".env" />
+  <File name=".env.local" />
+  <File name=".env.development" />
+</Files>
 
-Values defined in these files are loaded into process environment variables without overriding existing environment variables provided by your container or host operating system.
+<Callout type="info">
+  Values from these files never override environment variables already set by your container or
+  host OS — so a production secret injected by the platform always wins over a committed default.
+</Callout>
 
 ---
 
 ## 2. Declarative `ginboot.yml` / `application.yml` File
 
-Ginboot searches for configuration files automatically in the following precedence order:
+Ginboot searches for configuration files automatically, using the first one it finds:
 
-1. `ginboot.yml`
-2. `application.yml`
-3. `ginboot.yaml`
-4. `application.yaml`
+<Files>
+  <File name="ginboot.yml" />
+  <File name="application.yml" />
+  <File name="ginboot.yaml" />
+  <File name="application.yaml" />
+</Files>
 
 ### Example `ginboot.yml`
 
@@ -59,6 +68,63 @@ ginboot:
     service-name: order-service
     endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:localhost:4317}
 ```
+
+### Configuration keys
+
+<TypeTable
+  type={{
+    'server.port': {
+      type: 'int',
+      default: '8080',
+      description: 'Port the HTTP server binds to. Ignored when running on AWS Lambda.',
+    },
+    'server.base-path': {
+      type: 'string',
+      default: '/',
+      description: 'Prefix applied to every registered route.',
+    },
+    'server.env': {
+      type: 'string',
+      default: 'development',
+      description: 'Active environment name. Debug-only behaviour such as Air config generation keys off this.',
+    },
+    'services.<name>.url': {
+      type: 'string',
+      description: 'Base URL of a downstream service, resolved by ctx.CallService.',
+    },
+    'services.<name>.timeout': {
+      type: 'duration',
+      default: '5s',
+      description: 'Per-request timeout for calls to that service.',
+    },
+    'db.driver': {
+      type: 'string',
+      description: 'Database driver, e.g. postgres, mysql or mongo.',
+    },
+    'db.url': {
+      type: 'string',
+      description: 'Connection string for the configured driver.',
+    },
+    'db.max-open-conns': {
+      type: 'int',
+      default: '25',
+      description: 'Maximum number of open connections in the pool.',
+    },
+    'telemetry.enabled': {
+      type: 'bool',
+      default: 'false',
+      description: 'Turns the OpenTelemetry plugin on.',
+    },
+    'telemetry.service-name': {
+      type: 'string',
+      description: 'Service name reported on every span and metric.',
+    },
+    'telemetry.endpoint': {
+      type: 'string',
+      description: 'OTLP collector endpoint, e.g. localhost:4317.',
+    },
+  }}
+/>
 
 ---
 

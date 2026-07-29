@@ -1,46 +1,82 @@
 ---
 title: "Getting Started"
+description: "Scaffold a Ginboot project with start.ginboot.com or install it into an existing Go module, then run your first server."
+icon: Rocket
 ---
-
-# Getting Started with Ginboot
 
 Ginboot is a robust Go web framework built on top of the popular Gin framework, designed to accelerate the development of production-ready microservices and APIs. It comes with built-in support for different databases, telemetry, and AWS Lambda deployments.
 
-## 🚀 The Easiest Way: start.ginboot.com
+<Tabs items={['Use the generator', 'Install manually']}>
 
-The fastest way to scaffold a new Ginboot project is using our official generator.
+<Tab value="Use the generator">
+
+The fastest way to scaffold a new Ginboot project is our official generator at
+[start.ginboot.com](https://start.ginboot.com) — the Go equivalent of `start.spring.io`.
 
 ![start.ginboot.com UI](/images/start_ginboot.png)
 
-1. Navigate to [start.ginboot.com](https://start.ginboot.com).
-2. Enter your project name.
-3. Select your preferred database (e.g., PostgreSQL, MongoDB, MySQL).
-4. Toggle on any features you need (Telemetry, Jaeger Tracing, Grafana).
-5. Click **Generate Project** to download a ready-to-run `.zip` boilerplate.
+<Steps>
 
-Once downloaded, extract the files and run:
+<Step>
+
+### Open the generator
+
+Navigate to [start.ginboot.com](https://start.ginboot.com) and enter your project name.
+
+</Step>
+
+<Step>
+
+### Pick your database
+
+Select the database you want wired up — PostgreSQL, MongoDB or MySQL. Ginboot generates the
+matching repository setup for you.
+
+</Step>
+
+<Step>
+
+### Toggle the features you need
+
+Enable any extras up front: Telemetry, Jaeger tracing, Grafana dashboards.
+
+</Step>
+
+<Step>
+
+### Generate and run
+
+Click **Generate Project** to download a ready-to-run `.zip`. Extract it, then:
+
 ```bash
 go mod tidy
 go run main.go
 ```
 
-## Manual Installation
+</Step>
 
-Alternatively, you can install Ginboot in an existing Go project using `go get`:
+</Steps>
+
+</Tab>
+
+<Tab value="Install manually">
+
+To add Ginboot to an existing Go module:
 
 ```bash
 go get -u github.com/klass-lk/ginboot
 ```
 
-### Basic Example
+### Basic example
 
-Here is a simple example to start a basic HTTP server:
+A minimal HTTP server:
 
 ```go
 package main
 
 import (
 	"log"
+
 	"github.com/klass-lk/ginboot"
 )
 
@@ -54,3 +90,37 @@ func main() {
 	}
 }
 ```
+
+<Callout type="info">
+  `ginboot.New()` also loads `ginboot.yml` and any `.env` file it finds, so most settings can move
+  out of code entirely. See [Configuration](/docs/2-core-concepts/configuration).
+</Callout>
+
+</Tab>
+
+</Tabs>
+
+## Next steps
+
+<Cards>
+  <Card
+    title="Routing"
+    href="/docs/2-core-concepts/routing"
+    description="Organise endpoints with controllers and route groups."
+  />
+  <Card
+    title="Database Support"
+    href="/docs/3-features/database"
+    description="Wire up MongoDB, SQL or DynamoDB through one repository interface."
+  />
+  <Card
+    title="Configuration"
+    href="/docs/2-core-concepts/configuration"
+    description="Move settings into ginboot.yml and .env files."
+  />
+  <Card
+    title="Deployment"
+    href="/docs/4-advanced/deployment"
+    description="Ship your service to AWS Lambda with the SAM CLI."
+  />
+</Cards>

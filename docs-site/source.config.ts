@@ -1,5 +1,6 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
+import { shikiThemes } from './lib/shiki';
 
 // You can customize Zod schemas for frontmatter and `meta.json` here
 // see https://fumadocs.dev/docs/mdx/collections
@@ -18,6 +19,11 @@ export const docs = defineDocs({
 
 export default defineConfig({
   mdxOptions: {
-    // MDX options
+    rehypeCodeOptions: {
+      themes: shikiThemes,
+      // `gherkin` (4-advanced/testing.mdx) isn't in the default bundle, so it
+      // has to be requested explicitly alongside the languages we already use.
+      langs: ['go', 'bash', 'yaml', 'json', 'gherkin'],
+    },
   },
 });
