@@ -12,6 +12,8 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/klass-lk/ginboot/config"
+	"github.com/klass-lk/ginboot/service"
 )
 
 var osExit = os.Exit
@@ -19,13 +21,15 @@ var osExit = os.Exit
 type Runner func(engine *gin.Engine) error
 
 type Server struct {
-	engine      *gin.Engine
-	runner      Runner
-	corsConfig  *cors.Config
-	basePath    string
-	fileService FileService
-	logger      Logger
-	scheduler   *Scheduler
+	engine        *gin.Engine
+	runner        Runner
+	corsConfig    *cors.Config
+	basePath      string
+	fileService   FileService
+	logger        Logger
+	scheduler     *Scheduler
+	config        *config.Config
+	serviceClient service.ServiceClient
 }
 
 func init() {
@@ -42,11 +46,42 @@ func New() *Server {
 	engine.Use(gin.Recovery())
 
 	logger := NewSlogLogger(slog.Default())
-	return &Server{
-		engine:    engine,
-		logger:    logger,
-		scheduler: NewScheduler(logger),
+	cfg, _ := config.LoadConfig("")
+	svcClient := service.NewServiceClient(service.NewConfigServiceResolver(cfg))
+
+	// Ensure .air.toml auto-reload configuration is present for development
+	if gin.Mode() == gin.DebugMode {
+		_ = EnsureAirConfig("")
 	}
+
+	return &Server{
+		engine:        engine,
+		logger:        logger,
+		scheduler:     NewScheduler(logger),
+		config:        cfg,
+		serviceClient: svcClient,
+	}
+}
+
+func (s *Server) Config() *config.Config {
+	return s.config
+}
+
+func (s *Server) SetConfig(cfg *config.Config) *Server {
+	s.config = cfg
+	if s.serviceClient != nil {
+		s.serviceClient.SetResolver(service.NewConfigServiceResolver(cfg))
+	}
+	return s
+}
+
+func (s *Server) ServiceClient() service.ServiceClient {
+	return s.serviceClient
+}
+
+func (s *Server) SetServiceClient(client service.ServiceClient) *Server {
+	s.serviceClient = client
+	return s
 }
 
 func (s *Server) Scheduler() *Scheduler {

@@ -69,9 +69,20 @@ func MetricsMiddleware(meter metric.Meter) gin.HandlerFunc {
 		"http.server.request.count",
 		metric.WithDescription("Number of HTTP server requests."),
 	)
+	// Requests currently being served. Only the method is attached: this is a
+	// gauge sampled on every export, so adding the route would multiply the
+	// series count by the size of the API surface.
+	activeRequests, _ := meter.Int64UpDownCounter(
+		"http.server.active_requests",
+		metric.WithDescription("Number of in-flight HTTP server requests."),
+	)
 
 	return func(c *gin.Context) {
 		start := time.Now()
+
+		inFlight := metric.WithAttributes(attribute.String("http.method", c.Request.Method))
+		activeRequests.Add(c.Request.Context(), 1, inFlight)
+		defer activeRequests.Add(c.Request.Context(), -1, inFlight)
 
 		c.Next()
 
@@ -154,7 +165,15 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 				logLevel = slog.LevelWarn
 			}
 
-			logger.Log(c.Request.Context(), logLevel, "HTTP Request",
+			// The message summarises the request rather than repeating the
+			// constant string "HTTP Request". A log backend renders the body
+			// prominently and the attributes as metadata, so a message that is
+			// identical on every line forces the reader to expand each record to
+			// learn anything. The attributes are still emitted unchanged for
+			// querying and aggregation.
+			message := fmt.Sprintf("%s %s %d %s", method, fullPath, status, formatLatency(latency))
+
+			logger.Log(c.Request.Context(), logLevel, message,
 				slog.Int("status", status),
 				slog.String("method", method),
 				slog.String("path", fullPath),
@@ -215,5 +234,21 @@ func getMethodColor(method string) string {
 		return "\033[97;45m" // White text on Magenta background
 	default:
 		return "\033[97;46m" // White text on Cyan background
+	}
+}
+
+// formatLatency renders a duration at a readable scale for a log message.
+// time.Duration's own formatting produces values like "1.007531416s", where the
+// trailing precision is noise when scanning a log.
+func formatLatency(d time.Duration) string {
+	switch {
+	case d >= time.Second:
+		return fmt.Sprintf("%.2fs", d.Seconds())
+	case d >= time.Millisecond:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	case d >= time.Microsecond:
+		return fmt.Sprintf("%dµs", d.Microseconds())
+	default:
+		return fmt.Sprintf("%dns", d.Nanoseconds())
 	}
 }

@@ -1,8 +1,6 @@
 {
   "title": "Core Concepts",
-  "pages": [
-    "server",
-    "routing",
-    "error-handling"
-  ]
+  "description": "The server, configuration, routing and errors",
+  "icon": "Layers",
+  "pages": ["server", "configuration", "routing", "error-handling"]
 }

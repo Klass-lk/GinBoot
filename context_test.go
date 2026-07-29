@@ -54,7 +54,7 @@ func TestContext_GetAuthContext(t *testing.T) {
 			c, _ := gin.CreateTestContext(w)
 			tt.setupContext(c)
 
-			ctx := NewContext(c, nil, nil)
+			ctx := NewContext(c, nil, nil, nil)
 			auth, err := ctx.GetAuthContext()
 
 			if tt.expectError {
@@ -102,7 +102,7 @@ func TestContext_GetRequest(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			c.Request = req
 
-			ctx := NewContext(c, nil, nil)
+			ctx := NewContext(c, nil, nil, nil)
 			var testReq TestRequest
 			err := ctx.GetRequest(&testReq)
 
@@ -186,7 +186,7 @@ func TestContext_GetPageRequest(t *testing.T) {
 			req.URL.RawQuery = q.Encode()
 			c.Request = req
 
-			ctx := NewContext(c, nil, nil)
+			ctx := NewContext(c, nil, nil, nil)
 			result := ctx.GetPageRequest()
 
 			if tt.expectAbort {
@@ -205,7 +205,7 @@ func TestContext_GetFileService(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	mFS := &mockFileService{}
-	ctx := NewContext(c, mFS, nil)
+	ctx := NewContext(c, mFS, nil, nil)
 	assert.Equal(t, mFS, ctx.GetFileService())
 }
 
@@ -218,11 +218,11 @@ func TestContext_Logger(t *testing.T) {
 
 	// Case 1: Custom logger provided
 	customLogger := NewSlogLogger(nil)
-	ctx1 := NewContext(c, nil, customLogger)
+	ctx1 := NewContext(c, nil, customLogger, nil)
 	assert.NotNil(t, ctx1.Logger())
 
 	// Case 2: Nil logger (fallback)
-	ctx2 := NewContext(c, nil, nil)
+	ctx2 := NewContext(c, nil, nil, nil)
 	assert.NotNil(t, ctx2.Logger())
 }
 
@@ -232,7 +232,7 @@ func TestContext_RecordError_Nil(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	req := httptest.NewRequest("GET", "/", nil)
 	c.Request = req
-	ctx := NewContext(c, nil, nil)
+	ctx := NewContext(c, nil, nil, nil)
 
 	assert.NotPanics(t, func() {
 		ctx.RecordError(nil)
@@ -275,7 +275,7 @@ func TestContext_SendError(t *testing.T) {
 			req := httptest.NewRequest("GET", "/", nil)
 			c.Request = req
 
-			ctx := NewContext(c, nil, nil)
+			ctx := NewContext(c, nil, nil, nil)
 			ctx.SendError(tt.err)
 
 			assert.Equal(t, tt.expectedStatus, w.Code)

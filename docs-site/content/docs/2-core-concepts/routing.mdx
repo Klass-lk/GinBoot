@@ -1,7 +1,8 @@
 ---
 title: "Routing"
+description: "Organise endpoints with controllers and route groups, read path parameters, and pick between Ginboot's four handler signatures."
+icon: Route
 ---
-# Routing
 
 Ginboot provides a flexible and intuitive routing system built on top of Gin, enhancing it with controller-based organization, flexible handler signatures, and integrated context utilities.
 
@@ -140,6 +141,24 @@ group.GET("/:type/*path", controller.GetFile)   // Matches /files/image/avatar.p
 ## Handler Function Signatures
 
 Ginboot offers flexibility in defining your handler functions. The framework's internal `wrapHandler` mechanism automatically adapts your handler's signature to Gin's requirements, handling request parsing, context injection, and error management. All handlers must return two values: a response value (can be any type) and an error value.
+
+At a glance, pick the shape that matches what the handler actually needs:
+
+<ApiSignature signature="func(ctx *ginboot.Context) (T, error)">
+  You need context utilities — auth, pagination, path params — but no request body.
+</ApiSignature>
+
+<ApiSignature signature="func(request R) (T, error)">
+  You only need the parsed and validated request body.
+</ApiSignature>
+
+<ApiSignature signature="func() (T, error)">
+  No input at all — health checks, static lookups, simple stats.
+</ApiSignature>
+
+<ApiSignature signature="func(ctx *ginboot.Context, request R) (T, error)">
+  You need both: context utilities and the parsed request body.
+</ApiSignature>
 
 ### 1. Context Only Handler
 

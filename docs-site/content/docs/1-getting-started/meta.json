@@ -1,4 +1,6 @@
 {
   "title": "Getting Started",
+  "description": "Install Ginboot and run your first server",
+  "icon": "Rocket",
   "pages": ["index"]
 }

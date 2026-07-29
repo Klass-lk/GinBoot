@@ -1,7 +1,8 @@
 ---
 title: "Database Support"
+description: "One generic repository interface over MongoDB, SQL and DynamoDB, with built-in CRUD, pagination and custom repository support."
+icon: Database
 ---
-# Database Support
 
 Ginboot provides a powerful and flexible multi-database support system through a generic repository interface. This allows you to interact with different database systems (MongoDB, SQL, DynamoDB) using a consistent API, making your application more modular, testable, and adaptable to various data storage needs.
 
@@ -67,7 +68,13 @@ type PageResponse[T interface{}] struct {
 }
 ```
 
-## MongoDB Database Support
+## Choosing a backend
+
+The three supported backends share the interface above — pick the tab for the one you're using.
+
+<Tabs items={['MongoDB', 'SQL', 'DynamoDB']}>
+
+<Tab value="MongoDB">
 
 Ginboot offers robust support for MongoDB through `MongoConfig` for connection management and `MongoRepository` for data operations.
 
@@ -158,7 +165,9 @@ func main() {
 }
 ```
 
-## SQL Database Support
+</Tab>
+
+<Tab value="SQL">
 
 Ginboot provides a generic repository interface for SQL databases, allowing you to interact with relational databases like PostgreSQL or MySQL using a consistent API.
 
@@ -254,7 +263,9 @@ func main() {
 }
 ```
 
-## DynamoDB Support
+</Tab>
+
+<Tab value="DynamoDB">
 
 Ginboot provides robust support for AWS DynamoDB, offering a similar generic repository interface for interacting with NoSQL tables.
 
@@ -346,9 +357,18 @@ func main() {
 
 ### Considerations for DynamoDB Performance
 
-*   **Scan vs. Query:** Methods like `FindOneBy`, `FindOneByFilters`, `FindBy`, `FindByFilters`, `CountBy`, `CountByFilters`, and pagination methods (`FindAllPaginated`, `FindByPaginated`) internally use DynamoDB's `Scan` operation when filtering on non-primary key attributes. `Scan` operations read every item in the table and can be inefficient and costly for large tables.
+<Callout type="warn" title="Filtering falls back to Scan">
+  `FindOneBy`, `FindOneByFilters`, `FindBy`, `FindByFilters`, `CountBy`, `CountByFilters` and the
+  pagination methods all use DynamoDB's `Scan` when filtering on non-primary-key attributes. `Scan`
+  reads every item in the table, so it gets slow and expensive as the table grows.
+</Callout>
+
 *   **Global Secondary Indexes (GSIs):** For better performance on frequently queried non-primary key fields, consider defining Global Secondary Indexes (GSIs) on your DynamoDB tables. Ginboot's generic repository methods do not automatically leverage GSIs; you would typically use the underlying `*dynamodb.Client` directly for GSI-based queries or extend the repository to include GSI-aware methods.
 *   **Pagination:** DynamoDB's native pagination uses `ExclusiveStartKey` rather than traditional offset/limit. Ginboot's pagination methods simulate offset/limit by performing multiple `Scan` operations and discarding items, which can be inefficient for deep pagination. For optimal performance with large datasets, consider implementing cursor-based pagination directly using DynamoDB's `ExclusiveStartKey`.
+
+</Tab>
+
+</Tabs>
 
 ## Customizing Repositories
 

@@ -346,26 +346,26 @@ func TestRouter(t *testing.T) {
 
 	t.Run("wrapHandler panics", func(t *testing.T) {
 		assert.PanicsWithValue(t, "handler must be a function", func() {
-			wrapHandler("not a func", nil, nil)
+			wrapHandler("not a func", nil, nil, nil)
 		})
 
 		assert.PanicsWithValue(t, "handler must return (response, error)", func() {
-			wrapHandler(func() string { return "" }, nil, nil)
+			wrapHandler(func() string { return "" }, nil, nil, nil)
 		})
 
 		assert.PanicsWithValue(t, "second return value must be error", func() {
-			wrapHandler(func() (string, string) { return "", "" }, nil, nil)
+			wrapHandler(func() (string, string) { return "", "" }, nil, nil, nil)
 		})
 
 		assert.PanicsWithValue(t, "first argument must be *Context when using two arguments", func() {
-			fn := wrapHandler(func(a string, b string) (string, error) { return "", nil }, nil, nil)
+			fn := wrapHandler(func(a string, b string) (string, error) { return "", nil }, nil, nil, nil)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			fn(c)
 		})
 
 		assert.PanicsWithValue(t, "handler must have 0-2 arguments", func() {
-			fn := wrapHandler(func(a, b, c string) (string, error) { return "", nil }, nil, nil)
+			fn := wrapHandler(func(a, b, c string) (string, error) { return "", nil }, nil, nil, nil)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			fn(c)

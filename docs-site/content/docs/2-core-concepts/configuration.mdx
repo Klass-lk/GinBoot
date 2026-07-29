@@ -1,0 +1,171 @@
+---
+title: "Configuration"
+description: "Configure Ginboot declaratively with ginboot.yml, automatic .env loading, environment variable injection and Air hot reload."
+icon: FileCog
+---
+
+<Since v="1.1.0" />
+
+Ginboot provides a unified, declarative configuration system inspired by Spring Boot. Applications can be configured using a `ginboot.yml`, `application.yml`, or `ginboot.yaml` file alongside automatic `.env` environment file loading and live hot-reloading using Air.
+
+---
+
+## 1. Automatic `.env` Loading
+
+When `ginboot.New()` initializes, it automatically checks for and loads key-value pairs from local environment files in the current working directory in the following order:
+
+<Files>
+  <File name=".env" />
+  <File name=".env.local" />
+  <File name=".env.development" />
+</Files>
+
+<Callout type="info">
+  Values from these files never override environment variables already set by your container or
+  host OS — so a production secret injected by the platform always wins over a committed default.
+</Callout>
+
+---
+
+## 2. Declarative `ginboot.yml` / `application.yml` File
+
+Ginboot searches for configuration files automatically, using the first one it finds:
+
+<Files>
+  <File name="ginboot.yml" />
+  <File name="application.yml" />
+  <File name="ginboot.yaml" />
+  <File name="application.yaml" />
+</Files>
+
+### Example `ginboot.yml`
+
+```yaml
+ginboot:
+  server:
+    port: env(PORT, 8080)
+    base-path: /api/v1
+    env: ${ENV:development}
+
+  # Downstream Microservice Mappings
+  services:
+    user-service:
+      url: ${SERVICE_USER_SERVICE_URL:http://localhost:8081}
+      timeout: 5s
+    notification-service:
+      url: ${SERVICE_NOTIFICATION_SERVICE_URL:http://localhost:8082}
+      timeout: 10s
+
+  # Database Connection Configuration
+  db:
+    driver: postgres
+    url: ${DATABASE_URL:postgres://postgres:secret@localhost:5432/app_db}
+    max-open-conns: 25
+
+  # OpenTelemetry & Logging
+  telemetry:
+    enabled: true
+    service-name: order-service
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:localhost:4317}
+```
+
+### Configuration keys
+
+<TypeTable
+  type={{
+    'server.port': {
+      type: 'int',
+      default: '8080',
+      description: 'Port the HTTP server binds to. Ignored when running on AWS Lambda.',
+    },
+    'server.base-path': {
+      type: 'string',
+      default: '/',
+      description: 'Prefix applied to every registered route.',
+    },
+    'server.env': {
+      type: 'string',
+      default: 'development',
+      description: 'Active environment name. Debug-only behaviour such as Air config generation keys off this.',
+    },
+    'services.<name>.url': {
+      type: 'string',
+      description: 'Base URL of a downstream service, resolved by ctx.CallService.',
+    },
+    'services.<name>.timeout': {
+      type: 'duration',
+      default: '5s',
+      description: 'Per-request timeout for calls to that service.',
+    },
+    'db.driver': {
+      type: 'string',
+      description: 'Database driver, e.g. postgres, mysql or mongo.',
+    },
+    'db.url': {
+      type: 'string',
+      description: 'Connection string for the configured driver.',
+    },
+    'db.max-open-conns': {
+      type: 'int',
+      default: '25',
+      description: 'Maximum number of open connections in the pool.',
+    },
+    'telemetry.enabled': {
+      type: 'bool',
+      default: 'false',
+      description: 'Turns the OpenTelemetry plugin on.',
+    },
+    'telemetry.service-name': {
+      type: 'string',
+      description: 'Service name reported on every span and metric.',
+    },
+    'telemetry.endpoint': {
+      type: 'string',
+      description: 'OTLP collector endpoint, e.g. localhost:4317.',
+    },
+  }}
+/>
+
+---
+
+## 3. Environment Variable Injection Syntaxes
+
+Ginboot supports four distinct syntax styles for injecting environment variables dynamically inside your YAML configuration files:
+
+| Syntax Pattern | Example | Description |
+| :--- | :--- | :--- |
+| **Braced with Default** | `${SERVICE_USER_URL:http://localhost:8081}` | Uses `SERVICE_USER_URL` if defined; otherwise falls back to `http://localhost:8081`. |
+| **Standard Braced** | `${DATABASE_URL}` | Expands `DATABASE_URL` environment variable directly. |
+| **Function Style** | `env(PORT, 8080)` | Function-style helper syntax. |
+| **Prefix Style** | `$SERVICE_USER_URL` | Simple prefix syntax. |
+
+### Accessing Loaded Configuration in Code
+
+```go
+server := ginboot.New()
+cfg := server.Config()
+
+log.Printf("Server Port: %d", cfg.Ginboot.Server.Port)
+log.Printf("Database URL: %s", cfg.Ginboot.DB.URL)
+log.Printf("User Service URL: %s", cfg.Ginboot.Services["user-service"].URL)
+```
+
+---
+
+## 4. Live Hot-Reloading with Air (`.air.toml`)
+
+Ginboot natively supports Air for instant hot-reloading during development.
+
+When running in debug mode, Ginboot ensures a `.air.toml` configuration file is automatically generated in your project root if one is not present. The generated configuration watches `.go`, `.yml`, `.yaml`, and `.env` files.
+
+### Starting Air
+
+```bash
+# Install air CLI (if not already installed)
+go install github.com/air-verse/air@latest
+
+# Run air in your project root
+air
+```
+
+Changes made to `.go` files, `ginboot.yml`, or `.env` will instantly trigger a recompile and server restart.
