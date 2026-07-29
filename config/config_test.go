@@ -44,27 +44,102 @@ ginboot:
 func TestLoadDotEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 	envPath := filepath.Join(tmpDir, ".env")
-	err := os.WriteFile(envPath, []byte("DOTENV_TEST_VAR=hello_from_dotenv\n# Comment line\n"), 0644)
+	envContent := `
+# Comment line
+DOTENV_TEST_VAR=hello_from_dotenv
+QUOTED_VAR="quoted_val"
+SINGLE_QUOTED='single_val'
+INVALID_LINE_WITHOUT_EQUALS
+EMPTY_VAL=
+`
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
 	require.NoError(t, err)
 
 	LoadDotEnv(envPath)
 	assert.Equal(t, "hello_from_dotenv", os.Getenv("DOTENV_TEST_VAR"))
+	assert.Equal(t, "quoted_val", os.Getenv("QUOTED_VAR"))
+	assert.Equal(t, "single_val", os.Getenv("SINGLE_QUOTED"))
 }
 
 func TestApplyEnvironmentOverrides(t *testing.T) {
-	t.Setenv("PORT", "3000")
-	t.Setenv("DATABASE_URL", "postgres://prod-db:5432/main")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector:4317")
+	t.Setenv("GINBOOT_SERVER_PORT", "4000")
+	t.Setenv("GINBOOT_SERVER_BASE_PATH", "/api/v2")
+	t.Setenv("GINBOOT_DB_URL", "postgres://prod-db:5432/main")
+	t.Setenv("GINBOOT_DB_DRIVER", "postgres")
+	t.Setenv("GINBOOT_TELEMETRY_ENDPOINT", "otel-collector:4317")
+	t.Setenv("GINBOOT_TELEMETRY_HEADERS", "Auth=Bearer123")
+	t.Setenv("GINBOOT_TELEMETRY_PROTOCOL", "http/protobuf")
+	t.Setenv("GINBOOT_TELEMETRY_RESOURCE_ATTRIBUTES", "env=prod")
+	t.Setenv("GINBOOT_TELEMETRY_SERVICE_NAME", "my-app")
 
-	cfg, err := LoadConfig("")
-	require.NoError(t, err)
+	cfg := &Config{}
+	cfg.ApplyEnvironmentOverrides()
 
-	assert.Equal(t, 3000, cfg.Ginboot.Server.Port)
+	assert.Equal(t, 4000, cfg.Ginboot.Server.Port)
+	assert.Equal(t, "/api/v2", cfg.Ginboot.Server.BasePath)
 	assert.Equal(t, "postgres://prod-db:5432/main", cfg.Ginboot.DB.URL)
+	assert.Equal(t, "postgres", cfg.Ginboot.DB.Driver)
 	assert.Equal(t, "otel-collector:4317", cfg.Ginboot.Telemetry.Endpoint)
+	assert.Equal(t, "Auth=Bearer123", cfg.Ginboot.Telemetry.Headers)
+	assert.Equal(t, "http/protobuf", cfg.Ginboot.Telemetry.Protocol)
+	assert.Equal(t, "env=prod", cfg.Ginboot.Telemetry.ResourceAttributes)
+	assert.Equal(t, "my-app", cfg.Ginboot.Telemetry.ServiceName)
 }
 
-func TestLoadConfig(t *testing.T) {
+func TestLoadConfig_ErrorsAndCandidateSearching(t *testing.T) {
+	t.Run("Non-existent file error", func(t *testing.T) {
+		_, err := LoadConfig("/nonexistent/file.yml")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read config file")
+	})
+
+	t.Run("YAML unmarshal error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		invalidYamlFile := filepath.Join(tmpDir, "invalid.yml")
+		require.NoError(t, os.WriteFile(invalidYamlFile, []byte("ginboot: [broken yaml::"), 0644))
+
+		_, err := LoadConfig(invalidYamlFile)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse yaml config")
+	})
+
+	t.Run("Empty path candidate searching - ginboot.yaml", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		origWd, err := os.Getwd()
+		require.NoError(t, err)
+		defer func() { _ = os.Chdir(origWd) }()
+
+		require.NoError(t, os.Chdir(tmpDir))
+
+		yamlPath := filepath.Join(tmpDir, "ginboot.yaml")
+		yamlContent := `
+ginboot:
+  server:
+    port: 7070
+`
+		require.NoError(t, os.WriteFile(yamlPath, []byte(yamlContent), 0644))
+
+		cfg, err := LoadConfig("")
+		require.NoError(t, err)
+		assert.Equal(t, 7070, cfg.Ginboot.Server.Port)
+	})
+
+	t.Run("Empty path no candidate file present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		origWd, err := os.Getwd()
+		require.NoError(t, err)
+		defer func() { _ = os.Chdir(origWd) }()
+
+		require.NoError(t, os.Chdir(tmpDir))
+
+		cfg, err := LoadConfig("")
+		require.NoError(t, err)
+		assert.Equal(t, 8080, cfg.Ginboot.Server.Port)
+		assert.NotNil(t, cfg.Ginboot.Services)
+	})
+}
+
+func TestLoadConfig_ValidFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "application.yml")
 
