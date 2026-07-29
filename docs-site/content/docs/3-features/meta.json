@@ -1,6 +1,7 @@
 {
   "title": "Features",
   "pages": [
+    "service-communication",
     "aws-lambda",
     "database",
     "storage-s3",

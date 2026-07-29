@@ -1,0 +1,23 @@
+ginboot:
+  server:
+    port: env(PORT, 8080)
+    base-path: /api/v1
+    env: ${ENV:development}
+
+  services:
+    user-service:
+      url: ${SERVICE_USER_SERVICE_URL:http://localhost:8081}
+      timeout: 5s
+    notification-service:
+      url: ${SERVICE_NOTIFICATION_SERVICE_URL:http://localhost:8082}
+      timeout: 10s
+
+  db:
+    driver: mongodb
+    url: ${DATABASE_URL:mongodb://localhost:27017}
+
+  telemetry:
+    enabled: true
+    service-name: ginboot-example
+    exporter: otlp
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:localhost:4317}

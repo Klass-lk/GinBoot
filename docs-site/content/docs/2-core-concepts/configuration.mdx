@@ -1,0 +1,105 @@
+---
+title: "Declarative Configuration & Environment Setup"
+---
+
+# Declarative Configuration & Environment Setup
+
+Ginboot provides a unified, declarative configuration system inspired by Spring Boot. Applications can be configured using a `ginboot.yml`, `application.yml`, or `ginboot.yaml` file alongside automatic `.env` environment file loading and live hot-reloading using Air.
+
+---
+
+## 1. Automatic `.env` Loading
+
+When `ginboot.New()` initializes, it automatically checks for and loads key-value pairs from local environment files in the current working directory in the following order:
+
+1. `.env`
+2. `.env.local`
+3. `.env.development`
+
+Values defined in these files are loaded into process environment variables without overriding existing environment variables provided by your container or host operating system.
+
+---
+
+## 2. Declarative `ginboot.yml` / `application.yml` File
+
+Ginboot searches for configuration files automatically in the following precedence order:
+
+1. `ginboot.yml`
+2. `application.yml`
+3. `ginboot.yaml`
+4. `application.yaml`
+
+### Example `ginboot.yml`
+
+```yaml
+ginboot:
+  server:
+    port: env(PORT, 8080)
+    base-path: /api/v1
+    env: ${ENV:development}
+
+  # Downstream Microservice Mappings
+  services:
+    user-service:
+      url: ${SERVICE_USER_SERVICE_URL:http://localhost:8081}
+      timeout: 5s
+    notification-service:
+      url: ${SERVICE_NOTIFICATION_SERVICE_URL:http://localhost:8082}
+      timeout: 10s
+
+  # Database Connection Configuration
+  db:
+    driver: postgres
+    url: ${DATABASE_URL:postgres://postgres:secret@localhost:5432/app_db}
+    max-open-conns: 25
+
+  # OpenTelemetry & Logging
+  telemetry:
+    enabled: true
+    service-name: order-service
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:localhost:4317}
+```
+
+---
+
+## 3. Environment Variable Injection Syntaxes
+
+Ginboot supports four distinct syntax styles for injecting environment variables dynamically inside your YAML configuration files:
+
+| Syntax Pattern | Example | Description |
+| :--- | :--- | :--- |
+| **Braced with Default** | `${SERVICE_USER_URL:http://localhost:8081}` | Uses `SERVICE_USER_URL` if defined; otherwise falls back to `http://localhost:8081`. |
+| **Standard Braced** | `${DATABASE_URL}` | Expands `DATABASE_URL` environment variable directly. |
+| **Function Style** | `env(PORT, 8080)` | Function-style helper syntax. |
+| **Prefix Style** | `$SERVICE_USER_URL` | Simple prefix syntax. |
+
+### Accessing Loaded Configuration in Code
+
+```go
+server := ginboot.New()
+cfg := server.Config()
+
+log.Printf("Server Port: %d", cfg.Ginboot.Server.Port)
+log.Printf("Database URL: %s", cfg.Ginboot.DB.URL)
+log.Printf("User Service URL: %s", cfg.Ginboot.Services["user-service"].URL)
+```
+
+---
+
+## 4. Live Hot-Reloading with Air (`.air.toml`)
+
+Ginboot natively supports Air for instant hot-reloading during development.
+
+When running in debug mode, Ginboot ensures a `.air.toml` configuration file is automatically generated in your project root if one is not present. The generated configuration watches `.go`, `.yml`, `.yaml`, and `.env` files.
+
+### Starting Air
+
+```bash
+# Install air CLI (if not already installed)
+go install github.com/air-verse/air@latest
+
+# Run air in your project root
+air
+```
+
+Changes made to `.go` files, `ginboot.yml`, or `.env` will instantly trigger a recompile and server restart.

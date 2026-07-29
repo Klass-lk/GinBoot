@@ -2,6 +2,7 @@
   "title": "Core Concepts",
   "pages": [
     "server",
+    "configuration",
     "routing",
     "error-handling"
   ]

@@ -1,6 +1,7 @@
 {
   "title": "Advanced & Operations",
   "pages": [
+    "changelog",
     "testing",
     "deployment",
     "ginboot-cloud"

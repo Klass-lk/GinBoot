@@ -8,6 +8,7 @@ import (
 	"github.com/cucumber/godog/colors"
 	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot"
+	memory "github.com/klass-lk/ginboot/db/inmemory"
 	dbMongo "github.com/klass-lk/ginboot/db/mongo"
 	"github.com/klass-lk/ginboot/example/internal/controller"
 	"github.com/klass-lk/ginboot/example/internal/model"
@@ -79,7 +80,7 @@ func setupTestDB(ctx context.Context) *mongo.Database {
 
 func setupRouter(ctx context.Context, db *mongo.Database) (*gin.Engine, func()) {
 	// Create a new repository
-	postRepo := dbMongo.NewMongoRepository[model.Post](db, "posts")
+	postRepo := memory.NewInMemoryRepository[model.Post]()
 	cacheRepo := dbMongo.NewMongoRepository[ginboot.CacheEntry](db, "cache_entries")
 
 	// Create a new service

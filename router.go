@@ -7,13 +7,15 @@ import (
 	"reflect"
 
 	"github.com/gin-gonic/gin"
+	"github.com/klass-lk/ginboot/service"
 )
 
 // ControllerGroup represents a group of routes with common middleware and path prefix
 type ControllerGroup struct {
-	group       *gin.RouterGroup
-	fileService FileService
-	logger      Logger
+	group         *gin.RouterGroup
+	fileService   FileService
+	logger        Logger
+	serviceClient service.ServiceClient
 }
 
 // Controller interface defines methods that controllers must implement
@@ -25,14 +27,15 @@ type Controller interface {
 func (s *Server) Group(relativePath string, middleware ...gin.HandlerFunc) *ControllerGroup {
 	fullPath := path.Join(s.basePath, relativePath)
 	return &ControllerGroup{
-		group:       s.engine.Group(fullPath, middleware...),
-		fileService: s.fileService,
-		logger:      s.logger,
+		group:         s.engine.Group(fullPath, middleware...),
+		fileService:   s.fileService,
+		logger:        s.logger,
+		serviceClient: s.serviceClient,
 	}
 }
 
 // Internal handler wrapper
-func wrapHandler(handler interface{}, service FileService, logger Logger) gin.HandlerFunc {
+func wrapHandler(handler interface{}, fileService FileService, logger Logger, serviceClient service.ServiceClient) gin.HandlerFunc {
 	handlerType := reflect.TypeOf(handler)
 	if handlerType.Kind() != reflect.Func {
 		panic("handler must be a function")
@@ -48,7 +51,7 @@ func wrapHandler(handler interface{}, service FileService, logger Logger) gin.Ha
 			}
 			if handlerType.In(0) == reflect.TypeOf(&Context{}) {
 				return func(c *gin.Context) {
-					ctx := NewContext(c, service, logger)
+					ctx := NewContext(c, fileService, logger, serviceClient)
 					reflect.ValueOf(handler).Call([]reflect.Value{reflect.ValueOf(ctx)})
 				}
 			}
@@ -65,7 +68,7 @@ func wrapHandler(handler interface{}, service FileService, logger Logger) gin.Ha
 	}
 
 	return func(c *gin.Context) {
-		ctx := NewContext(c, service, logger)
+		ctx := NewContext(c, fileService, logger, serviceClient)
 
 		// Prepare arguments based on handler signature
 		var args []reflect.Value
@@ -143,7 +146,7 @@ func (s *Server) RegisterController(path string, controller Controller) {
 // Handle wraps gin handler to use custom context
 func (g *ControllerGroup) Handle(httpMethod, relativePath string, handler interface{}, middleware ...gin.HandlerFunc) {
 	registerOpenAPIRoute(httpMethod, path.Join(g.group.BasePath(), relativePath), reflect.TypeOf(handler))
-	wrappedHandler := wrapHandler(handler, g.fileService, g.logger)
+	wrappedHandler := wrapHandler(handler, g.fileService, g.logger, g.serviceClient)
 	handlers := append(middleware, wrappedHandler)
 	g.group.Handle(httpMethod, relativePath, handlers...)
 }
@@ -186,9 +189,10 @@ func (g *ControllerGroup) HEAD(relativePath string, handler interface{}, middlew
 // Group creates a new sub-group with the given path and middleware
 func (g *ControllerGroup) Group(relativePath string, middleware ...gin.HandlerFunc) *ControllerGroup {
 	return &ControllerGroup{
-		group:       g.group.Group(relativePath, middleware...),
-		fileService: g.fileService,
-		logger:      g.logger,
+		group:         g.group.Group(relativePath, middleware...),
+		fileService:   g.fileService,
+		logger:        g.logger,
+		serviceClient: g.serviceClient,
 	}
 }
 

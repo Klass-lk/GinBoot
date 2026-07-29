@@ -51,12 +51,20 @@ func main() {
 	// Initialize services
 	postService := service.NewPostService(postRepo)
 
-	// Initialize server with telemetry
+	// Initialize server (automatically loads ginboot.yml / ginboot.yaml / application.yml)
 	server := ginboot.New()
-	telemetry.Instrument(server, "ginboot-example", nil)
+	cfg := server.Config()
 
-	// Set base path for all routes
-	server.SetBasePath("/api/v1")
+	log.Printf("[Ginboot App] Loaded Config - Service Port: %d, BasePath: %s", cfg.Ginboot.Server.Port, cfg.Ginboot.Server.BasePath)
+
+	telemetry.Instrument(server, cfg.Ginboot.Telemetry.ServiceName, nil)
+
+	// Set base path from loaded config
+	if cfg.Ginboot.Server.BasePath != "" {
+		server.SetBasePath(cfg.Ginboot.Server.BasePath)
+	} else {
+		server.SetBasePath("/api/v1")
+	}
 
 	// Configure CORS with custom settings
 	server.CustomCORS(

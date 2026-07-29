@@ -1,0 +1,48 @@
+---
+title: "Changelog"
+---
+
+# Release Changelog
+
+All notable changes, new features, architectural improvements, and deprecations in the **Ginboot Framework** are documented here.
+
+---
+
+## [v1.1.0] - 2026-07-29
+
+### 🚀 New Features & Enhancements
+
+#### 1. Spring-Boot Style Declarative Configuration (`ginboot.yml`)
+- Introduced unified YAML configuration parsing (`ginboot.yml`, `application.yml`, `ginboot.yaml`, `application.yaml`).
+- Config structure supporting `server`, `services`, `db`, and `telemetry` sections.
+- Access server configuration anywhere via `server.Config()`.
+
+#### 2. Automatic `.env` Environment File Loading
+- Automatically loads `.env`, `.env.local`, and `.env.development` files into process environment variables without needing third-party loader boilerplate in `main.go`.
+- Added support for 4 environment variable injection syntaxes inside YAML config files:
+  - `${VAR:default}`
+  - `${VAR}`
+  - `env(VAR, default)`
+  - `$VAR`
+
+#### 3. Inter-Service Communication Layer
+- Added high-level service communication methods to `ginboot.Context`:
+  - `ctx.CallService("service-name", path, payload, &response)` (synchronous request-reply)
+  - `ctx.CallServiceAsync("service-name", path, payload)` (non-blocking fire-and-forget)
+- Implemented `ConfigServiceResolver` supporting dynamic endpoint resolution via `SERVICE_<NAME>_URL` environment variables and Ginboot Cloud UI environment injection.
+- Automatic OpenTelemetry W3C trace context header propagation (`traceparent`, `tracestate`) across downstream service calls.
+
+#### 4. Live Hot-Reloading with Air (`.air.toml`)
+- Added generic `.air.toml` configuration generator (`EnsureAirConfig`).
+- Ginboot applications running in debug mode automatically ensure `.air.toml` is created in the project root watching `.go`, `.yml`, `.yaml`, and `.env` files for seamless live hot-reloading.
+
+---
+
+## [v1.0.0] - Initial Release
+
+- Core controller registration system (`server.RegisterController`).
+- Flexible handler signatures returning `(ResponseDTO, error)`.
+- OpenTelemetry instrumentation and Grafana OTLP exporting.
+- MongoDB and InMemory repository generic abstractions.
+- AWS S3 Storage Service integration.
+- AWS Lambda serverless execution mode support.

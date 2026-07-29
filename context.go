@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/klass-lk/ginboot/service"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -20,15 +21,17 @@ type AuthContext struct {
 
 type Context struct {
 	*gin.Context
-	fileService FileService
-	logger      Logger
+	fileService   FileService
+	logger        Logger
+	serviceClient service.ServiceClient
 }
 
-func NewContext(c *gin.Context, fileService FileService, logger Logger) *Context {
+func NewContext(c *gin.Context, fileService FileService, logger Logger, serviceClient service.ServiceClient) *Context {
 	return &Context{
-		Context:     c,
-		fileService: fileService,
-		logger:      logger,
+		Context:       c,
+		fileService:   fileService,
+		logger:        logger,
+		serviceClient: serviceClient,
 	}
 }
 
@@ -141,4 +144,36 @@ func (c *Context) SendError(err error) {
 		"error_code": "Internal Server Error",
 		"message":    err.Error(),
 	})
+}
+
+// ServiceClient returns the configured ServiceClient instance
+func (c *Context) ServiceClient() service.ServiceClient {
+	if c.serviceClient != nil {
+		return c.serviceClient
+	}
+	return service.NewServiceClient(nil)
+}
+
+// CallService performs a synchronous request-reply service-to-service call
+func (c *Context) CallService(serviceName string, action string, payload interface{}, target interface{}) error {
+	reqCtx := c.Request.Context()
+	return c.ServiceClient().Call(reqCtx, serviceName, action, payload, target)
+}
+
+// CallServiceAsync performs a non-blocking fire-and-forget service-to-service call
+func (c *Context) CallServiceAsync(serviceName string, action string, payload interface{}) error {
+	reqCtx := c.Request.Context()
+	return c.ServiceClient().CallAsync(reqCtx, serviceName, action, payload)
+}
+
+// CallServiceWithMethod performs a synchronous service call with a specific HTTP method
+func (c *Context) CallServiceWithMethod(method string, serviceName string, action string, payload interface{}, target interface{}) error {
+	reqCtx := c.Request.Context()
+	return c.ServiceClient().CallWithMethod(reqCtx, method, serviceName, action, payload, target)
+}
+
+// CallServiceAsyncWithMethod performs an async service call with a specific HTTP method
+func (c *Context) CallServiceAsyncWithMethod(method string, serviceName string, action string, payload interface{}) error {
+	reqCtx := c.Request.Context()
+	return c.ServiceClient().CallAsyncWithMethod(reqCtx, method, serviceName, action, payload)
 }

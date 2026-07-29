@@ -43,9 +43,12 @@ func (c *PostController) Register(group *ginboot.ControllerGroup) {
 	}
 }
 
-func (c *PostController) CreatePost(request model.Post) (model.Post, error) {
+func (c *PostController) CreatePost(ctx *ginboot.Context, request model.Post) (model.Post, error) {
 	post, err := c.postService.CreatePost(request)
 	if err == nil {
+		// Asynchronously notify notification-service non-blocking (fire and forget)
+		_ = ctx.CallServiceAsync("notification-service", "/api/v1/notifications/send", post)
+
 		// Invalidate "posts" tag on creation
 		err = c.cacheService.Invalidate(context.Background(), "posts")
 		if err != nil {
