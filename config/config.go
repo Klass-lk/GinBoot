@@ -48,10 +48,15 @@ type DBConfig struct {
 
 // TelemetryConfig options for OpenTelemetry & Logging
 type TelemetryConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	ServiceName string `yaml:"service-name"`
-	Exporter    string `yaml:"exporter"`
-	Endpoint    string `yaml:"endpoint"`
+	Enabled            bool   `yaml:"enabled"`
+	ServiceName        string `yaml:"service-name"`
+	ServiceVersion     string `yaml:"service-version"`
+	Environment        string `yaml:"environment"`
+	Exporter           string `yaml:"exporter"`
+	Endpoint           string `yaml:"endpoint"`
+	Headers            string `yaml:"headers"`
+	Protocol           string `yaml:"protocol"`
+	ResourceAttributes string `yaml:"resource-attributes"`
 }
 
 // GinbootRootConfig is the root configuration structure
@@ -143,6 +148,18 @@ func (cfg *Config) ApplyEnvironmentOverrides() {
 	// 3. Telemetry overrides
 	if otelEndpoint := getFirstEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "GINBOOT_TELEMETRY_ENDPOINT"); otelEndpoint != "" {
 		cfg.Ginboot.Telemetry.Endpoint = otelEndpoint
+	}
+	if otelHeaders := getFirstEnv("OTEL_EXPORTER_OTLP_HEADERS", "GINBOOT_TELEMETRY_HEADERS"); otelHeaders != "" {
+		cfg.Ginboot.Telemetry.Headers = otelHeaders
+	}
+	if otelProto := getFirstEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "GINBOOT_TELEMETRY_PROTOCOL"); otelProto != "" {
+		cfg.Ginboot.Telemetry.Protocol = otelProto
+	}
+	if otelResAttrs := getFirstEnv("OTEL_RESOURCE_ATTRIBUTES", "GINBOOT_TELEMETRY_RESOURCE_ATTRIBUTES"); otelResAttrs != "" {
+		cfg.Ginboot.Telemetry.ResourceAttributes = otelResAttrs
+	}
+	if svcName := getFirstEnv("OTEL_SERVICE_NAME", "GINBOOT_TELEMETRY_SERVICE_NAME"); svcName != "" {
+		cfg.Ginboot.Telemetry.ServiceName = svcName
 	}
 }
 

@@ -1,60 +1,82 @@
 ---
 title: "Telemetry & Observability"
-description: "Ship traces, metrics and trace-correlated logs to Grafana, Jaeger or any OTLP backend with Ginboot's telemetry plugin."
+description: "Ship traces, metrics and trace-correlated logs to Grafana, Jaeger or any OTLP backend zero-code with Ginboot's telemetry integration."
 icon: Telescope
 ---
 
-Ginboot provides a unified `telemetry` package to automatically trace requests, collect metrics, and stream logs directly to your observability backend (like Grafana, Jaeger, or Ginboot Cloud).
+# Telemetry & Observability
 
-![Telemetry Dashboard](/images/telemetry_dashboard.png)
+Ginboot provides zero-code-boilerplate OpenTelemetry integration. Simply define your telemetry configuration in `ginboot.yml` or set standard `OTEL_*` environment variables in `.env` — Ginboot automatically initializes OpenTelemetry tracing, metrics, request IDs, and trace-correlated logging pipelines.
 
-## Setting up Telemetry
+---
 
-To initialize OpenTelemetry in your Ginboot app, call `telemetry.Setup()` and `telemetry.Instrument()` before starting the engine.
+## 1. Zero-Boilerplate Configuration (`ginboot.yml`)
+
+You do **not** need to write manual telemetry setup or shutdown code in `main.go`. Define telemetry options declaratively in `ginboot.yml`:
+
+```yaml
+ginboot:
+  telemetry:
+    enabled: true
+    service-name: order-service
+    service-version: v1.0.0
+    environment: production
+    exporter: otlp
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:https://otlp-gateway-prod.grafana.net/otlp}
+    headers: ${OTEL_EXPORTER_OTLP_HEADERS}
+    protocol: ${OTEL_EXPORTER_OTLP_PROTOCOL:http/protobuf}
+    resource-attributes: ${OTEL_RESOURCE_ATTRIBUTES}
+```
+
+---
+
+## 2. Standard OpenTelemetry Environment Variables (`.env`)
+
+Ginboot automatically inspects and loads standard OpenTelemetry environment variables:
+
+```bash
+# OTLP Endpoint (Grafana Cloud, Jaeger, Datadog, or Ginboot Cloud)
+OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-prod.grafana.net/otlp"
+
+# OTLP Headers (Basic Auth / Bearer tokens)
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20MTEyNj..."
+
+# OTLP Protocol
+OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
+
+# Standard Resource Attributes
+OTEL_RESOURCE_ATTRIBUTES="service.name=order-service,service.version=v1.0.0,deployment.environment=production"
+```
+
+---
+
+## 3. Minimal Application `main.go`
+
+With zero-code telemetry initialization, your application entry point stays clean and readable:
 
 ```go
 package main
 
 import (
-	"context"
 	"log"
 	"github.com/klass-lk/ginboot"
-	"github.com/klass-lk/ginboot/telemetry"
+	"github.com/klass-lk/ginboot/internal/controller"
 )
 
 func main() {
-	app := ginboot.New()
+	// Automatically loads .env, ginboot.yml, and configures OTLP telemetry
+	server := ginboot.New()
 
-	// 1. Setup global OpenTelemetry pipelines
-	shutdown, err := telemetry.Setup(context.Background(), "my-microservice", "v1.0.0")
-	if err != nil {
-		log.Printf("Failed to setup telemetry: %v", err)
-	}
-	// Ensure pipelines are flushed upon exit
-	defer func() {
-		if shutdown != nil {
-			_ = shutdown(context.Background())
-		}
-	}()
+	server.RegisterController("/orders", controller.NewOrderController())
 
-	// 2. Instrument the Gin Engine (injects tracing middlewares)
-	telemetry.Instrument(app, "my-microservice", nil)
-
-	app.Start(8080)
+	log.Fatal(server.Start(8080))
 }
 ```
 
-## How It Works
+---
 
-- **Distributed Tracing**: Automatically injects standard W3C Trace Context headers into incoming and outgoing requests.
-- **Metrics**: Exposes HTTP request duration, error rates, and system memory metrics.
-- **Context-Bound Logging**: If you use `ctx.Logger().Info("Hello")` within your Ginboot controllers, the log entry is automatically enriched with the active `trace_id` and `span_id`.
+## 4. Key Capabilities
 
-## OTLP Exporting
-
-Ginboot uses the standard OpenTelemetry Protocol (OTLP). You can direct the telemetry data to any collector by setting standard environment variables before running your app:
-
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
-export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer my-token"
-```
+- **Distributed Tracing**: Automatically injects W3C Trace Context headers into incoming and outgoing service requests (`traceparent`).
+- **Context-Correlated Logging**: Controller logs using `ctx.Logger().Info("Created order")` are automatically enriched with active `trace_id` and `span_id`.
+- **System & Runtime Metrics**: Automatically collects HTTP request duration histograms, error rates, and Go runtime memory stats.
