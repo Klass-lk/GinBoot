@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/klass-lk/ginboot/config"
+	"github.com/klass-lk/ginboot/service"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -282,5 +284,46 @@ func TestContext_SendError(t *testing.T) {
 			assert.Contains(t, w.Body.String(), tt.expectedCode)
 		})
 	}
+}
+
+func TestContextServiceClientHelpers(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer mockServer.Close()
+
+	cfg := &config.Config{
+		Ginboot: config.GinbootRootConfig{
+			Services: map[string]config.ServiceTargetConfig{
+				"mock-svc": {URL: mockServer.URL},
+			},
+		},
+	}
+
+	client := service.NewServiceClient(service.NewConfigServiceResolver(cfg))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("GET", "/", nil)
+	c.Request = req
+
+	ctx := NewContext(c, nil, nil, client)
+
+	assert.Equal(t, client, ctx.ServiceClient())
+
+	var target map[string]string
+	err := ctx.CallService("mock-svc", "/test", nil, &target)
+	assert.NoError(t, err)
+	assert.Equal(t, "ok", target["status"])
+
+	err = ctx.CallServiceAsync("mock-svc", "/test", nil)
+	assert.NoError(t, err)
+
+	err = ctx.CallServiceWithMethod("POST", "mock-svc", "/test", nil, &target)
+	assert.NoError(t, err)
+
+	err = ctx.CallServiceAsyncWithMethod("POST", "mock-svc", "/test", nil)
+	assert.NoError(t, err)
 }
 

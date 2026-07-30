@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/klass-lk/ginboot/config"
+	"github.com/klass-lk/ginboot/service"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -233,5 +235,19 @@ func TestServer_SetLogger(t *testing.T) {
 	logger := NewSlogLogger(nil)
 	server.SetLogger(logger)
 	assert.Equal(t, logger, server.logger)
+}
+
+func TestServer_ConfigAndServiceClient(t *testing.T) {
+	server := New()
+	assert.NotNil(t, server.Config())
+	assert.NotNil(t, server.ServiceClient())
+
+	cfg := &config.Config{}
+	server.SetConfig(cfg)
+	assert.Equal(t, cfg, server.Config())
+
+	mockClient := service.NewServiceClient(nil)
+	server.SetServiceClient(mockClient)
+	assert.Equal(t, mockClient, server.ServiceClient())
 }
 

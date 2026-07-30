@@ -206,11 +206,27 @@ func (m *multiHandler) WithGroup(name string) slog.Handler {
 
 // Instrument enables OpenTelemetry tracing, metrics, request IDs, and structured logging for the server.
 func Instrument(s *ginboot.Server, serviceName string, logger *slog.Logger) {
+	InstrumentWithOptions(s, serviceName, logger, DefaultCaptureOptions())
+}
+
+// InstrumentWithOptions is Instrument with control over what each request
+// records. Use it to turn request and response payload capture on in code rather
+// than through the environment.
+//
+// The registration order is deliberate and the middlewares do not work in any
+// other:
+//
+//   - tracing first, so everything after it has a span to annotate;
+//   - the request id after tracing, because it records itself on the span and a
+//     span that does not exist yet cannot be annotated;
+//   - request detail last, so its post-processing runs before the logging
+//     middleware's and the log record can include the message it recovered.
+func InstrumentWithOptions(s *ginboot.Server, serviceName string, logger *slog.Logger, capture CaptureOptions) {
+	// Tracing first: the middlewares that follow annotate the span it starts.
+	s.Engine().Use(otelgin.Middleware(serviceName))
+
 	// Add Request ID middleware for X-Request-ID headers & OTel correlation
 	s.Engine().Use(RequestIDMiddleware())
-
-	// Add otelgin middleware for tracing
-	s.Engine().Use(otelgin.Middleware(serviceName))
 
 	// Add custom metrics middleware
 	s.Engine().Use(MetricsMiddleware(nil))
@@ -225,4 +241,7 @@ func Instrument(s *ginboot.Server, serviceName string, logger *slog.Logger) {
 	}
 	s.SetLogger(ginboot.NewSlogLogger(logger))
 	s.Engine().Use(LoggingMiddleware(logger))
+
+	// Innermost, so the logging middleware above sees what it recovered.
+	s.Engine().Use(RequestDetailMiddleware(capture))
 }

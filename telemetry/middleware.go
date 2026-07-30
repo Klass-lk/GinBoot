@@ -139,13 +139,31 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 			fullPath = path + "?" + rawQuery
 		}
 
+		// The message explaining a failure, when anything managed to supply one.
+		// RequestDetailMiddleware recovers it from the response body for handlers
+		// that report failures by writing a response rather than returning an
+		// error, which is otherwise invisible from here.
+		errorDetail, _ := c.Value(errorDetailKey).(string)
+		if errorDetail == "" && len(c.Errors) > 0 {
+			errorDetail = c.Errors.Last().Err.Error()
+		}
+
 		// Record error status on OpenTelemetry span if status >= 400
 		if span.IsRecording() {
 			if status >= 400 {
-				span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d Error", status))
+				// Prefer the real message: a description of "HTTP 500 Error"
+				// restates the status code and explains nothing.
+				description := errorDetail
+				if description == "" {
+					description = fmt.Sprintf("HTTP %d Error", status)
+				}
+				span.SetStatus(codes.Error, description)
+
 				if len(c.Errors) > 0 {
 					span.RecordError(c.Errors.Last().Err)
-					span.SetAttributes(attribute.String("error.message", c.Errors.String()))
+				}
+				if errorDetail != "" {
+					span.SetAttributes(attribute.String("error.message", errorDetail))
 				} else {
 					span.SetAttributes(attribute.String("error.message", fmt.Sprintf("HTTP %d status code", status)))
 				}
@@ -173,7 +191,7 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 			// querying and aggregation.
 			message := fmt.Sprintf("%s %s %d %s", method, fullPath, status, formatLatency(latency))
 
-			logger.Log(c.Request.Context(), logLevel, message,
+			attrs := []any{
 				slog.Int("status", status),
 				slog.String("method", method),
 				slog.String("path", fullPath),
@@ -182,7 +200,18 @@ func LoggingMiddleware(logger *slog.Logger) gin.HandlerFunc {
 				slog.String("request_id", reqIDStr),
 				slog.String("trace_id", traceID),
 				slog.String("span_id", spanID),
-			)
+			}
+
+			// Without this the record for a failed request carries only its status,
+			// which is what made an error in a log backend unreadable: every line
+			// looked the same and none said what went wrong. It is appended to the
+			// message too, because a log viewer shows the body first.
+			if errorDetail != "" {
+				message += " — " + errorDetail
+				attrs = append(attrs, slog.String("error", errorDetail))
+			}
+
+			logger.Log(c.Request.Context(), logLevel, message, attrs...)
 		}
 
 		// 2. Format a beautiful colored GINBOOT request log for the console
