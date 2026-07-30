@@ -123,6 +123,16 @@ func wrapHandler(handler interface{}, fileService FileService, logger Logger, se
 			return
 		}
 
+		// A handler is allowed to write its own response and return no value —
+		// delegating to a plain gin function is the usual reason. Writing a status
+		// on top of that response would override it: gin refuses the change and
+		// logs "Headers were already written. Wanted to override status code 500
+		// with 200", which reads as a framework bug and hides the real status in
+		// the noise.
+		if c.Writer.Written() {
+			return
+		}
+
 		// Send response
 		response := results[0].Interface()
 		if response != nil {

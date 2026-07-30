@@ -57,8 +57,6 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 		os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") != "" ||
 		os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") != ""
 
-	isLambda := os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
-
 	// Use a 1-second timeout context for OTLP exporter initialization to avoid blocking Lambda INIT
 	exporterCtx, cancelExporterCtx := context.WithTimeout(ctx, 1*time.Second)
 	defer cancelExporterCtx()
@@ -66,21 +64,15 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	// Set up trace provider
 	var tracerProvider *trace.TracerProvider
 	if hasOTLPConfig {
-		traceExporter, err := otlptracehttp.New(exporterCtx, otlptracehttp.WithTimeout(500*time.Millisecond))
+		traceExporter, err := otlptracehttp.New(exporterCtx)
 		if err != nil {
 			fmt.Printf("[Telemetry Warning] Failed to create trace exporter: %v. Falling back to default provider.\n", err)
 			tracerProvider = trace.NewTracerProvider(trace.WithResource(res))
 		} else {
-			var spanProcessor trace.SpanProcessor
-			if isLambda {
-				spanProcessor = trace.NewSimpleSpanProcessor(traceExporter)
-			} else {
-				spanProcessor = trace.NewBatchSpanProcessor(traceExporter)
-			}
 			tracerProvider = trace.NewTracerProvider(
 				trace.WithSampler(trace.AlwaysSample()),
 				trace.WithResource(res),
-				trace.WithSpanProcessor(spanProcessor),
+				trace.WithSpanProcessor(trace.NewBatchSpanProcessor(traceExporter)),
 			)
 		}
 	} else {
@@ -113,20 +105,14 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	// Set up log provider
 	var loggerProvider *log.LoggerProvider
 	if hasOTLPConfig {
-		logExporter, err := otlploghttp.New(exporterCtx, otlploghttp.WithTimeout(500*time.Millisecond))
+		logExporter, err := otlploghttp.New(exporterCtx)
 		if err != nil {
 			fmt.Printf("[Telemetry Warning] Failed to create log exporter: %v. Falling back to default provider.\n", err)
 			loggerProvider = log.NewLoggerProvider(log.WithResource(res))
 		} else {
-			var logProcessor log.Processor
-			if isLambda {
-				logProcessor = log.NewSimpleProcessor(logExporter)
-			} else {
-				logProcessor = log.NewBatchProcessor(logExporter)
-			}
 			loggerProvider = log.NewLoggerProvider(
 				log.WithResource(res),
-				log.WithProcessor(logProcessor),
+				log.WithProcessor(log.NewBatchProcessor(logExporter)),
 			)
 		}
 	} else {
@@ -135,6 +121,9 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 		)
 	}
 	global.SetLoggerProvider(loggerProvider)
+
+	// Published so a runtime that is about to be suspended can drain telemetry.
+	setFlushTargets(tracerProvider, meterProvider, loggerProvider)
 
 	// Start collecting Go runtime metrics
 	if err := runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second * 15)); err != nil {
