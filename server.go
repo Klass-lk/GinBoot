@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"log/slog"
@@ -30,6 +31,10 @@ type Server struct {
 	scheduler     *Scheduler
 	config        *config.Config
 	serviceClient service.ServiceClient
+
+	instrumentedMu    sync.Mutex
+	instrumented      bool
+	telemetryShutdown func(context.Context) error
 }
 
 func init() {
@@ -54,13 +59,19 @@ func New() *Server {
 		_ = EnsureAirConfig("")
 	}
 
-	return &Server{
+	srv := &Server{
 		engine:        engine,
 		logger:        logger,
 		scheduler:     NewScheduler(logger),
 		config:        cfg,
 		serviceClient: svcClient,
 	}
+
+	// Before the caller registers a single route, because gin only applies
+	// middleware to what is declared after it.
+	srv.instrumentFromConfig()
+
+	return srv
 }
 
 func (s *Server) Config() *config.Config {

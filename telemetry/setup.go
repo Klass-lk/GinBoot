@@ -69,8 +69,17 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 			fmt.Printf("[Telemetry Warning] Failed to create trace exporter: %v. Falling back to default provider.\n", err)
 			tracerProvider = trace.NewTracerProvider(trace.WithResource(res))
 		} else {
+			// No WithSampler here on purpose. Naming a sampler in code overrides
+			// OTEL_TRACES_SAMPLER and OTEL_TRACES_SAMPLER_ARG entirely, and
+			// sampling is the one lever an operator has to buy back the overhead
+			// tracing puts on a request. Hardcoding AlwaysSample took that lever
+			// away: a service turning the ratio down to shed load stayed at full
+			// volume, with nothing to say why.
+			//
+			// Left unset the SDK reads those variables and falls back to
+			// ParentBased(AlwaysSample), which also respects an upstream caller's
+			// decision not to sample rather than overriding it.
 			tracerProvider = trace.NewTracerProvider(
-				trace.WithSampler(trace.AlwaysSample()),
 				trace.WithResource(res),
 				trace.WithSpanProcessor(trace.NewBatchSpanProcessor(traceExporter)),
 			)
@@ -211,6 +220,18 @@ func Instrument(s *ginboot.Server, serviceName string, logger *slog.Logger) {
 //   - request detail last, so its post-processing runs before the logging
 //     middleware's and the log record can include the message it recovered.
 func InstrumentWithOptions(s *ginboot.Server, serviceName string, logger *slog.Logger, capture CaptureOptions) {
+	// Installing this middleware twice doubles every span, log line and metric
+	// the server produces, and an application that both imports this package for
+	// its registration and calls Instrument itself would do just that. The first
+	// caller wins and the rest are no-ops.
+	if !s.ClaimInstrumentation() {
+		return
+	}
+	instrument(s, serviceName, logger, capture)
+}
+
+// instrument installs the middleware, with the claim already made by the caller.
+func instrument(s *ginboot.Server, serviceName string, logger *slog.Logger, capture CaptureOptions) {
 	// Tracing first: the middlewares that follow annotate the span it starts.
 	s.Engine().Use(otelgin.Middleware(serviceName))
 
