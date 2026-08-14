@@ -8,6 +8,43 @@ All notable changes, new features, architectural improvements, and deprecations 
 
 ---
 
+## [Unreleased]
+
+### 🔭 Telemetry
+
+#### 1. `ginboot.yml`'s telemetry block now does something
+- `ginboot.New()` reads `telemetry.enabled` and installs tracing, metrics, request IDs and trace-correlated logging, before any route is registered.
+- Previously the block was parsed and ignored: telemetry only ran if an application called `telemetry.Setup` and `telemetry.Instrument` by hand.
+- **Requires a blank import**, which is what compiles the plugin in and lets it register itself:
+  ```go
+  import _ "github.com/klass-lk/ginboot/telemetry"
+  ```
+  Applications that do not import it are unaffected and still do not carry the OpenTelemetry SDK. Configuration that asks for telemetry the binary cannot provide now says so at startup instead of staying silent.
+
+#### 2. An OTLP endpoint in the environment also enables telemetry
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — or the signal-specific `..._TRACES_/_METRICS_/_LOGS_ENDPOINT` — turns instrumentation on by itself.
+- This is for deployments that ship a compiled binary and no config file, where `ginboot.yml` is not there to be read and `telemetry.enabled` would be `false` however the repository has it.
+- `OTEL_SDK_DISABLED=true` beats both signals, for a service whose environment names a collector it should not talk to.
+
+#### 3. `OTEL_TRACES_SAMPLER` is honoured **(behaviour change)**
+- Sampling was hardcoded to `AlwaysSample`, which silently overrode `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`. A service turning the ratio down to shed load stayed at full volume.
+- Unset, the SDK now defaults to `parentbased_always_on`: the same volume as before, but an upstream caller's decision not to sample is respected rather than overridden.
+
+#### 4. Instrumenting twice is now a no-op
+- Middleware installed a second time doubled every span, log line and metric for the life of the process. An application that both imports the plugin and calls `Instrument` itself would have done exactly that.
+- The first caller wins; later ones do nothing.
+
+#### 5. `server.Shutdown(ctx)`
+- Drains buffered telemetry where a process ends deliberately. Not useful on a runtime that is suspended rather than stopped, such as AWS Lambda.
+
+#### 6. Telemetry now survives AWS Lambda
+- Lambda freezes the execution environment the moment a handler returns, and an export's wall-clock deadline keeps running while it is frozen. A fast handler therefore lost **all** of its telemetry to `context deadline exceeded`, not merely some of it.
+- `runtime/lambda` now registers as a Lambda internal extension and drains telemetry in the window between the response going out and the environment freezing. Nothing to configure.
+- **Responses are not delayed** — Lambda returns the response before extensions finish — but the drain is inside the billed invocation. Bound it with `GINBOOT_TELEMETRY_FLUSH_TIMEOUT` (default `2s`) and watch `PostRuntimeExtensionsDuration`.
+- HTTP servers are unaffected: the machinery lives in `runtime/lambda`, is inert unless `AWS_LAMBDA_RUNTIME_API` is set, and does not register at all when no telemetry is compiled in. A failed registration leaves the function serving exactly as before.
+
+---
+
 ## [v1.1.0] - 2026-07-29
 
 ### 🚀 New Features & Enhancements

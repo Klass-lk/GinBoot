@@ -66,8 +66,14 @@ ginboot:
   telemetry:
     enabled: true
     service-name: order-service
-    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:localhost:4317}
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:}
 ```
+
+<Callout type="warn" title="The telemetry block needs the plugin imported">
+These keys only do something when the application imports
+`_ "github.com/klass-lk/ginboot/telemetry"`. See [Telemetry &
+Observability](/docs/3-features/telemetry).
+</Callout>
 
 ### Configuration keys
 
@@ -113,18 +119,51 @@ ginboot:
     'telemetry.enabled': {
       type: 'bool',
       default: 'false',
-      description: 'Turns the OpenTelemetry plugin on.',
+      description: 'Turns the OpenTelemetry plugin on. Requires the plugin to be imported. An OTEL_EXPORTER_OTLP_ENDPOINT in the environment also turns it on, so a deployment that ships only a binary still reports.',
     },
     'telemetry.service-name': {
       type: 'string',
-      description: 'Service name reported on every span and metric.',
+      description: 'Service name reported on every span and metric. Published as OTEL_SERVICE_NAME.',
+    },
+    'telemetry.service-version': {
+      type: 'string',
+      description: 'Version reported alongside the service name.',
+    },
+    'telemetry.environment': {
+      type: 'string',
+      description: 'Recorded as the deployment.environment resource attribute, e.g. production.',
+    },
+    'telemetry.exporter': {
+      type: 'string',
+      default: 'otlp',
+      description: 'Export protocol family. Only otlp is implemented.',
     },
     'telemetry.endpoint': {
       type: 'string',
-      description: 'OTLP collector endpoint, e.g. localhost:4317.',
+      description: 'OTLP collector endpoint, e.g. https://otlp-gateway-prod.grafana.net/otlp. Leave empty to export nowhere; naming a collector that is not running logs a failure for every batch.',
+    },
+    'telemetry.headers': {
+      type: 'string',
+      description: 'Headers sent to the collector, e.g. Authorization=Basic%20... Published as OTEL_EXPORTER_OTLP_HEADERS.',
+    },
+    'telemetry.protocol': {
+      type: 'string',
+      default: 'http/protobuf',
+      description: 'OTLP wire protocol. Published as OTEL_EXPORTER_OTLP_PROTOCOL.',
+    },
+    'telemetry.resource-attributes': {
+      type: 'string',
+      description: 'Extra resource attributes as key=value pairs, e.g. team=payments. Published as OTEL_RESOURCE_ATTRIBUTES.',
     },
   }}
 />
+
+<Callout type="info" title="The environment wins">
+Every telemetry key above is published to the OpenTelemetry SDK as its
+corresponding `OTEL_*` variable, and a variable already set in the environment
+is left alone. A deployment can therefore repoint an application at a different
+collector without a rebuild.
+</Callout>
 
 ---
 
