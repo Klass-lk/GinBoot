@@ -77,6 +77,15 @@ To use the optional telemetry plugin:
 go get github.com/klass-lk/ginboot/telemetry
 ```
 
+Then import it. The import is blank because you are not calling anything — it
+compiles the plugin in so it can register itself with the framework:
+```go
+import _ "github.com/klass-lk/ginboot/telemetry"
+```
+From there, `telemetry.enabled: true` in `ginboot.yml` or an
+`OTEL_EXPORTER_OTLP_ENDPOINT` in the environment switches it on. See
+[Telemetry & Observability](docs/telemetry.md).
+
 ## Documentation
 
 For more detailed information on Ginboot's features and usage, refer to the following documentation:

@@ -21,7 +21,18 @@ func NewRunnerWithScheduler(scheduler *ginboot.Scheduler) ginboot.Runner {
 		ginLambdaV1 := ginadapter.New(engine)
 		ginLambdaV2 := ginadapter.NewV2(engine)
 
+		// Buffered telemetry has to leave before the environment freezes, and the
+		// only window for that is after the response. Nil unless there is
+		// something to drain and Lambda accepted the registration; signalling it
+		// is a no-op either way. See extension.go.
+		extension := startTelemetryExtension()
+
 		handler := func(ctx context.Context, req json.RawMessage) (interface{}, error) {
+			// Deferred so it runs however the handler leaves: an invocation that
+			// panicked or errored still produced telemetry, and is usually the
+			// one worth having.
+			defer extension.invocationComplete()
+
 			// Check if incoming payload is a cloud scheduled event (AWS EventBridge, GCP, Azure, HTTP)
 			if scheduler != nil {
 				if event, ok := scheduler.ParseScheduledEvent(req); ok {
@@ -65,7 +76,10 @@ func NewRunnerV2() ginboot.Runner {
 	return func(engine *gin.Engine) error {
 		ginLambda := ginadapter.NewV2(engine)
 
+		extension := startTelemetryExtension()
+
 		handler := func(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
+			defer extension.invocationComplete()
 			return ginLambda.ProxyWithContext(ctx, req)
 		}
 

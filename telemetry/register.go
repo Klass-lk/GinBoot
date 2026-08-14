@@ -20,6 +20,12 @@ import (
 // way to control what each request records — see InstrumentWithOptions.
 func init() {
 	ginboot.RegisterInstrumenter(setupFromConfig)
+
+	// Telemetry is batched, so something has to drain it on a runtime that gets
+	// suspended between requests rather than running continuously. Registering
+	// the drain here lets runtime/lambda arrange it without importing the
+	// OpenTelemetry SDK — see Flush, and ginboot.RegisterFlusher.
+	ginboot.RegisterFlusher(Flush)
 }
 
 func setupFromConfig(ctx context.Context, s *ginboot.Server, cfg config.TelemetryConfig) (func(context.Context) error, error) {

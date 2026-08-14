@@ -1,18 +1,79 @@
 ---
 title: "Telemetry & Observability"
-description: "Ship traces, metrics and trace-correlated logs to Grafana, Jaeger or any OTLP backend zero-code with Ginboot's telemetry integration."
+description: "Ship traces, metrics and trace-correlated logs to Grafana, Jaeger or any OTLP backend with a single import and no setup code."
 icon: Telescope
 ---
 
 # Telemetry & Observability
 
-Ginboot provides zero-code-boilerplate OpenTelemetry integration. Simply define your telemetry configuration in `ginboot.yml` or set standard `OTEL_*` environment variables in `.env` — Ginboot automatically initializes OpenTelemetry tracing, metrics, request IDs, and trace-correlated logging pipelines.
+Ginboot ships OpenTelemetry tracing, metrics, request IDs and trace-correlated logging as a plugin. One import turns it on; `ginboot.yml` or the standard `OTEL_*` environment variables decide the rest. You never write setup or shutdown code.
+
+The plugin lives in its own module, `github.com/klass-lk/ginboot/telemetry`, so an application that does not import it never carries the OpenTelemetry SDK at all.
 
 ---
 
-## 1. Zero-Boilerplate Configuration (`ginboot.yml`)
+## 1. Turn it on
 
-You do **not** need to write manual telemetry setup or shutdown code in `main.go`. Define telemetry options declaratively in `ginboot.yml`:
+Add the import. It is blank — you are not calling anything, you are compiling the plugin in so it can register itself with the framework:
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/klass-lk/ginboot"
+	_ "github.com/klass-lk/ginboot/telemetry" // registers the telemetry plugin
+)
+
+func main() {
+	server := ginboot.New()
+
+	server.RegisterController("/orders", controller.NewOrderController())
+
+	log.Fatal(server.Start(8080))
+}
+```
+
+<Callout type="warn">
+This import is required. Without it there is no telemetry plugin in the binary, and configuration asking for telemetry has nothing to switch on. Ginboot says so at startup rather than staying silent:
+
+```
+[ginboot] telemetry was requested (ginboot.yml or OTEL_EXPORTER_OTLP_ENDPOINT)
+but no instrumentation is registered; add: import _ "github.com/klass-lk/ginboot/telemetry"
+```
+</Callout>
+
+Projects created with `ginboot new --telemetry` already have the import and the configuration.
+
+---
+
+## 2. How it decides to run
+
+With the plugin compiled in, either of these switches it on:
+
+| Signal | Meaning |
+| :--- | :--- |
+| `telemetry.enabled: true` in `ginboot.yml` | You asked for it |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` set in the environment<br/>(or the signal-specific `..._TRACES_/_METRICS_/_LOGS_ENDPOINT`) | Something has pointed this application at a collector |
+
+The second exists because configuration files do not always survive deployment. A build that ships a compiled binary and nothing else has no `ginboot.yml` at runtime, so `telemetry.enabled` reads as `false` no matter what the repository says. A platform that has gone to the trouble of injecting an endpoint has expressed the intent plainly enough — see [Deploying](#5-deploying).
+
+With neither, nothing is installed and telemetry costs nothing. That is the normal state on a development machine.
+
+### Turning it off
+
+Set OpenTelemetry's own switch, which beats both signals above:
+
+```bash
+OTEL_SDK_DISABLED=true
+```
+
+Use it when an environment names a collector that this particular service should not talk to. Only a value that parses as true disables anything — a typo will not silence your service.
+
+---
+
+## 3. Configuration (`ginboot.yml`)
 
 ```yaml
 ginboot:
@@ -22,61 +83,146 @@ ginboot:
     service-version: v1.0.0
     environment: production
     exporter: otlp
-    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:https://otlp-gateway-prod.grafana.net/otlp}
+    endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:}
     headers: ${OTEL_EXPORTER_OTLP_HEADERS}
     protocol: ${OTEL_EXPORTER_OTLP_PROTOCOL:http/protobuf}
     resource-attributes: ${OTEL_RESOURCE_ATTRIBUTES}
 ```
 
+These values are published to the OpenTelemetry SDK as the `OTEL_*` variables it reads. **A variable already present in the environment is left alone**, so a deployment can point an application at a different collector without a rebuild.
+
+<Callout type="warn">
+Leave `endpoint` empty unless you mean it. With no endpoint the SDK installs providers that export nowhere, which costs nothing and is what you want on a laptop. Naming a collector that is not running does not fail quietly — every batch is attempted and every failure is logged.
+</Callout>
+
 ---
 
-## 2. Standard OpenTelemetry Environment Variables (`.env`)
+## 4. Environment variables
 
-Ginboot automatically inspects and loads standard OpenTelemetry environment variables:
+Every standard OpenTelemetry variable works, because the SDK reads them directly:
 
 ```bash
-# OTLP Endpoint (Grafana Cloud, Jaeger, Datadog, or Ginboot Cloud)
+# Where to send it
 OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-prod.grafana.net/otlp"
-
-# OTLP Headers (Basic Auth / Bearer tokens)
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20MTEyNj..."
-
-# OTLP Protocol
 OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf"
 
-# Standard Resource Attributes
-OTEL_RESOURCE_ATTRIBUTES="service.name=order-service,service.version=v1.0.0,deployment.environment=production"
+# How it is labelled
+OTEL_SERVICE_NAME="order-service"
+OTEL_RESOURCE_ATTRIBUTES="deployment.environment=production,team=payments"
+
+# How much to record — see Sampling
+OTEL_TRACES_SAMPLER="parentbased_traceidratio"
+OTEL_TRACES_SAMPLER_ARG="0.1"
 ```
 
 ---
 
-## 3. Minimal Application `main.go`
+## 5. Deploying
 
-With zero-code telemetry initialization, your application entry point stays clean and readable:
+Ginboot reads `ginboot.yml` from the working directory at startup. On a serverless runtime that directory contains exactly what your deployment package contains, so **a config file left out of the package does not exist at runtime**, and every setting in it silently takes its zero value.
+
+Either ship it alongside the binary:
+
+```bash
+zip function.zip bootstrap ginboot.yml
+```
+
+…or rely on the endpoint rule from [section 2](#2-how-it-decides-to-run) and configure the deployment entirely through `OTEL_*` environment variables. Both work; the second is usually simpler, since a platform that hosts your application is already injecting them.
+
+Ginboot Cloud does both: it packages `ginboot.yml` with the binary and injects the `OTEL_*` variables for every environment.
+
+---
+
+## 6. Sampling
+
+Sampling is how you trade completeness for overhead, and it is configured entirely through the standard variables:
+
+```bash
+OTEL_TRACES_SAMPLER="parentbased_traceidratio"
+OTEL_TRACES_SAMPLER_ARG="0.1"   # record one request in ten
+```
+
+Unset, the SDK records everything and respects an upstream caller's decision not to sample (`parentbased_always_on`).
+
+---
+
+## 7. Taking control in code
+
+The import covers the common case. Call the API directly when you need something it does not express — a service name computed at runtime, a custom logger, or payload capture turned on in code:
 
 ```go
-package main
-
 import (
-	"log"
+	"context"
+
 	"github.com/klass-lk/ginboot"
-	"github.com/klass-lk/ginboot/internal/controller"
+	"github.com/klass-lk/ginboot/telemetry"
 )
 
 func main() {
-	// Automatically loads .env, ginboot.yml, and configures OTLP telemetry
 	server := ginboot.New()
 
-	server.RegisterController("/orders", controller.NewOrderController())
+	shutdown, err := telemetry.Setup(context.Background(), "order-service", "v1.0.0")
+	if err != nil {
+		log.Printf("continuing without telemetry: %v", err)
+	}
+	defer shutdown(context.Background())
 
-	log.Fatal(server.Start(8080))
+	telemetry.InstrumentWithOptions(server, "order-service", nil, telemetry.CaptureOptions{
+		RequestBodies: true,
+		MaxBytes:      4096,
+	})
+
+	server.Start(8080)
 }
 ```
 
+Instrumenting twice is not additive — it would double every span, log line and metric — so the first caller wins and later ones do nothing. Mixing the blank import with an explicit `Instrument` call is therefore safe.
+
+Where a process exits deliberately, `server.Shutdown(ctx)` drains whatever is still buffered. It is not useful on a runtime that is suspended rather than stopped, such as AWS Lambda, which never gets far enough to run it — that case is handled for you, see below.
+
 ---
 
-## 4. Key Capabilities
+## 8. On AWS Lambda
 
-- **Distributed Tracing**: Automatically injects W3C Trace Context headers into incoming and outgoing service requests (`traceparent`).
-- **Context-Correlated Logging**: Controller logs using `ctx.Logger().Info("Created order")` are automatically enriched with active `trace_id` and `span_id`.
-- **System & Runtime Metrics**: Automatically collects HTTP request duration histograms, error rates, and Go runtime memory stats.
+Batching assumes the process is still running a moment later to send the batch. Lambda freezes the execution environment the instant your handler returns, and the export's wall-clock deadline keeps running while it is frozen, so a fast handler loses **all** of its telemetry rather than some of it.
+
+The `runtime/lambda` runner handles this: it registers as a Lambda internal extension and drains in the window between your response going out and the environment freezing. You configure nothing.
+
+It does not delay the caller — Lambda returns the response before extensions finish — but the drain is inside the billed invocation. See [Telemetry on Lambda](/docs/3-features/aws-lambda#telemetry-on-lambda) for the cost and for `GINBOOT_TELEMETRY_FLUSH_TIMEOUT`.
+
+An HTTP server needs none of this. It is never frozen, its exporters run continuously, and nothing on the request path ever waits for a drain.
+
+---
+
+## 9. What you get
+
+- **Distributed tracing**: W3C Trace Context (`traceparent`) propagated into and out of every service call.
+- **Trace-correlated logs**: `ctx.Logger().Info("Created order")` carries the active `trace_id` and `span_id`, so a log line leads back to the request that wrote it.
+- **Metrics**: HTTP request duration histograms, error rates, and Go runtime memory stats.
+- **Request IDs**: an `X-Request-ID` on every request, recorded on the span.
+
+### Cost
+
+Nothing here sits on the path of a request. Setting up exporters builds clients without dialing anything, and each record a request produces is handed to a batch processor that exports from its own goroutine — if its queue is full it drops rather than blocking your handler. Payload capture is off unless you ask for it.
+
+---
+
+## 10. Context-bound logger
+
+Any log written through the request context is correlated with the current trace:
+
+```go
+func (c *UserController) GetUser(ctx *ginboot.Context) (interface{}, error) {
+    // Automatically carries trace_id and span_id
+    ctx.Logger().Info("Fetching user from database", "user_id", 123)
+
+    // ...
+}
+```
+
+By default the plugin prints human-readable logs to the terminal while shipping structured logs to your OTLP backend. To use your own instead, implement `ginboot.Logger` and inject it:
+
+```go
+server.SetLogger(myCustomFileLogger)
+```

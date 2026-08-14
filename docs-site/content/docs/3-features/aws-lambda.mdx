@@ -43,6 +43,30 @@ func main() {
 }
 ```
 
+## Telemetry on Lambda
+
+If you use [telemetry](/docs/3-features/telemetry), the Lambda runner takes care of one problem that is specific to this runtime, and you do not have to configure anything for it.
+
+Telemetry is batched rather than exported as it is produced, so that no request waits on a network round trip. On a server the batch leaves a moment later and nobody notices. On Lambda nobody is running a moment later: the execution environment is frozen the instant your handler returns, and a frozen process exports nothing. The freeze does not pause the export's clock either — a suspended request still has a wall-clock deadline, so by the time the environment thaws the deadline has passed and the export fails with `context deadline exceeded`. A handler that returns in a few milliseconds never wins that race and loses **all** of its telemetry, not some of it.
+
+So the runner registers itself as a Lambda [internal extension](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-extensions-api.html) and drains telemetry in the window Lambda leaves open between your response going out and the environment freezing.
+
+<Callout type="info" title="This does not slow your responses">
+Lambda returns the response to the caller as soon as your handler produces it, whether or not extensions are still running. The drain happens after that.
+
+It does extend the **invocation**, and billed duration covers the runtime plus its extensions. On a handler that runs for 2ms, a 200ms drain is 200ms of billed time. Watch the `PostRuntimeExtensionsDuration` CloudWatch metric for the real figure, and prefer a collector in the same region as your function — it is the same round trip either way, so a shorter one costs less.
+</Callout>
+
+Bound the drain with `GINBOOT_TELEMETRY_FLUSH_TIMEOUT` (default `2s`; accepts a duration such as `500ms`, or a bare number read as milliseconds):
+
+```bash
+GINBOOT_TELEMETRY_FLUSH_TIMEOUT=500ms
+```
+
+None of this applies to an HTTP server, which is never frozen and whose exporters run continuously in the background. The machinery lives entirely in the `runtime/lambda` module and does nothing unless `AWS_LAMBDA_RUNTIME_API` is present, so an application serving HTTP never pays for it — and one with no telemetry compiled in does not register an extension at all, since holding the environment open to drain nothing would be billed time for no telemetry.
+
+If registration fails, the function still serves. You get a log line and best-effort exports, which is exactly the behaviour of a runner without an extension.
+
 ## AWS SAM Configuration
 
 To deploy your Ginboot application using AWS Serverless Application Model (SAM), you simply need a `template.yaml`.
