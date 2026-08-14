@@ -63,11 +63,31 @@ func Flush(ctx context.Context) error {
 		defer cancel()
 	}
 
-	var errs []error
-	for _, target := range targets {
-		if err := target.ForceFlush(ctx); err != nil {
-			errs = append(errs, err)
-		}
+	// Concurrently, because the deadline is shared and the targets are not:
+	// traces, metrics and logs go to three different endpoints over three
+	// different connections, and nothing about one export informs another.
+	//
+	// Run one after another they compete for the same budget instead of using
+	// it: the first takes what a round trip costs, the second gets the
+	// remainder, and the third — reliably the logs — gets none and fails
+	// without ever being attempted. The symptom is telemetry that arrives
+	// partially and always in the same order, which reads like a backend
+	// problem rather than a scheduling one.
+	//
+	// Running them together also shortens the drain to the slowest single
+	// export rather than the sum of all three, and on a runtime where this time
+	// is billed that is the difference worth having.
+	errs := make([]error, len(targets))
+	var wg sync.WaitGroup
+	wg.Add(len(targets))
+
+	for i, target := range targets {
+		go func(i int, target flusher) {
+			defer wg.Done()
+			errs[i] = target.ForceFlush(ctx)
+		}(i, target)
 	}
+	wg.Wait()
+
 	return errors.Join(errs...)
 }
