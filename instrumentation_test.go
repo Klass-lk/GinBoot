@@ -43,6 +43,25 @@ func writeConfig(t *testing.T, body string) {
 	t.Chdir(dir)
 }
 
+// otlpEndpointKeys are the variables that, on their own, mean a deployment has
+// asked for telemetry.
+var otlpEndpointKeys = []string{
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+}
+
+// clearOTLPEnv makes a test that asserts telemetry stays off independent of
+// whatever the machine running it happens to export.
+func clearOTLPEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range otlpEndpointKeys {
+		t.Setenv(key, "")
+	}
+	t.Setenv("OTEL_SDK_DISABLED", "")
+}
+
 const telemetryEnabled = `ginboot:
   telemetry:
     enabled: true
@@ -91,6 +110,9 @@ func TestNewLeavesInstrumentationOffUnlessAskedTo(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			writeConfig(t, tt.body)
+			// An endpoint is the other way of asking, so it has to be absent for
+			// this to be testing what it claims to.
+			clearOTLPEnv(t)
 
 			called := false
 			withInstrumenter(t, func(_ context.Context, _ *Server, _ config.TelemetryConfig) (func(context.Context) error, error) {
@@ -101,6 +123,105 @@ func TestNewLeavesInstrumentationOffUnlessAskedTo(t *testing.T) {
 			New()
 
 			assert.False(t, called, "instrumentation must be opt-in: importing the package cannot be enough")
+		})
+	}
+}
+
+// A deployment often ships the binary and nothing else, so ginboot.yml is not
+// there to be read and telemetry.enabled is false however the repository has it.
+// An endpoint in the environment has to be enough on its own, or a platform
+// cannot turn telemetry on for the applications it hosts.
+func TestAnEndpointInTheEnvironmentIsEnoughOnItsOwn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, key := range otlpEndpointKeys {
+		t.Run(key, func(t *testing.T) {
+			// No config file at all, which is what /var/task looks like.
+			t.Chdir(t.TempDir())
+			clearOTLPEnv(t)
+			t.Setenv(key, "https://collector.example.com/otlp")
+
+			called := false
+			withInstrumenter(t, func(_ context.Context, _ *Server, _ config.TelemetryConfig) (func(context.Context) error, error) {
+				called = true
+				return nil, nil
+			})
+
+			New()
+
+			assert.True(t, called, "an injected endpoint is a deployment asking for telemetry")
+		})
+	}
+}
+
+func TestNoEndpointAndNoConfigStaysSilent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Chdir(t.TempDir())
+	// A laptop: nothing configured anywhere.
+	clearOTLPEnv(t)
+
+	called := false
+	withInstrumenter(t, func(_ context.Context, _ *Server, _ config.TelemetryConfig) (func(context.Context) error, error) {
+		called = true
+		return nil, nil
+	})
+
+	New()
+
+	assert.False(t, called, "nothing configured must cost nothing")
+}
+
+// The way out for a service whose environment names a collector it wants no
+// part of, which is the one case the endpoint rule would otherwise get wrong.
+func TestOtelSdkDisabledBeatsBothWaysOfAsking(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tt := range []struct {
+		name  string
+		setup func(t *testing.T)
+	}{
+		{"asked for by config", func(t *testing.T) { writeConfig(t, telemetryEnabled) }},
+		{"asked for by endpoint", func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://collector.example.com/otlp")
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup(t)
+			t.Setenv("OTEL_SDK_DISABLED", "true")
+
+			called := false
+			withInstrumenter(t, func(_ context.Context, _ *Server, _ config.TelemetryConfig) (func(context.Context) error, error) {
+				called = true
+				return nil, nil
+			})
+
+			New()
+
+			assert.False(t, called, "OTEL_SDK_DISABLED must win over every way of asking")
+		})
+	}
+}
+
+func TestOtelSdkDisabledOnlyDisablesWhenItSaysSo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, value := range []string{"false", "", "nonsense"} {
+		t.Run("OTEL_SDK_DISABLED="+value, func(t *testing.T) {
+			writeConfig(t, telemetryEnabled)
+			t.Setenv("OTEL_SDK_DISABLED", value)
+
+			called := false
+			withInstrumenter(t, func(_ context.Context, _ *Server, _ config.TelemetryConfig) (func(context.Context) error, error) {
+				called = true
+				return nil, nil
+			})
+
+			New()
+
+			// An unparseable value is not a request to turn telemetry off, and
+			// treating it as one would silence a service over a typo.
+			assert.True(t, called)
 		})
 	}
 }

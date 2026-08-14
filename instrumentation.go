@@ -3,6 +3,8 @@ package ginboot
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/klass-lk/ginboot/config"
@@ -79,18 +81,18 @@ func (s *Server) ClaimInstrumentation() bool {
 // dialing, and every record they take afterwards leaves on a background
 // goroutine, so no request ever waits on telemetry.
 func (s *Server) instrumentFromConfig() {
-	if s.config == nil || !s.config.Ginboot.Telemetry.Enabled {
+	if !telemetryRequested(s.config) {
 		return
 	}
 
 	instrument := registeredInstrumenter()
 	if instrument == nil {
-		// Config asked for something the binary cannot do. Saying so is the
-		// whole point: the alternative is an application that looks configured
-		// for telemetry, reports none, and gives no hint that one import is
-		// missing.
-		fmt.Println("[ginboot] telemetry.enabled is set but no instrumentation is registered; " +
-			"add: import _ \"github.com/klass-lk/ginboot/telemetry\"")
+		// Telemetry was asked for and the binary cannot provide it. Saying so is
+		// the whole point: the alternative is an application that looks
+		// configured for telemetry, reports none, and gives no hint that one
+		// import is missing.
+		fmt.Println("[ginboot] telemetry was requested (ginboot.yml or OTEL_EXPORTER_OTLP_ENDPOINT) " +
+			"but no instrumentation is registered; add: import _ \"github.com/klass-lk/ginboot/telemetry\"")
 		return
 	}
 
@@ -101,6 +103,52 @@ func (s *Server) instrumentFromConfig() {
 		return
 	}
 	s.telemetryShutdown = shutdown
+}
+
+// telemetryRequested reports whether this process should be instrumented.
+//
+// Configuration is one way to ask, and an environment carrying somewhere to
+// send telemetry is the other. The second exists because the file does not
+// always survive the trip: a deployment often ships a compiled binary and
+// nothing else, so ginboot.yml is absent at runtime and telemetry.enabled reads
+// as false no matter what the repository says. A platform that has gone to the
+// trouble of pointing an application at a collector has expressed the intent
+// plainly enough.
+//
+// This cannot switch telemetry on by itself. The instrumentation still has to
+// be compiled in, which takes a deliberate import, so an application that never
+// wants the OpenTelemetry SDK never carries it whatever the environment says.
+func telemetryRequested(cfg *config.Config) bool {
+	// OTEL_SDK_DISABLED is OpenTelemetry's own off switch, and it is the way out
+	// for a service that has an endpoint in its environment and still wants
+	// nothing to do with it — the one case the endpoint rule would otherwise get
+	// wrong. Checked first so it beats both of the ways of asking.
+	if disabled, err := strconv.ParseBool(os.Getenv("OTEL_SDK_DISABLED")); err == nil && disabled {
+		return false
+	}
+
+	if cfg != nil && cfg.Ginboot.Telemetry.Enabled {
+		return true
+	}
+
+	return otlpEndpointConfigured()
+}
+
+// otlpEndpointConfigured reports whether the environment names somewhere to send
+// telemetry. The signal-specific variables count: an application exporting only
+// traces sets one of those and no general endpoint at all.
+func otlpEndpointConfigured() bool {
+	for _, key := range []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+	} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Shutdown drains anything instrumentation is holding, and returns once it has
