@@ -147,6 +147,10 @@ func (s *Server) registerDefaultHealthRoutes() {
 func (s *Server) Start(port int) error {
 	s.registerDefaultHealthRoutes()
 
+	// After the application's routes, because the specification it serves is
+	// built as those routes are registered.
+	s.registerOpenAPIEndpoint()
+
 	exportPath := os.Getenv("GINBOOT_EXPORT_SWAGGER")
 	if exportPath != "" {
 		err := exportOpenAPISpec(exportPath)
