@@ -59,12 +59,32 @@ type TelemetryConfig struct {
 	ResourceAttributes string `yaml:"resource-attributes"`
 }
 
+// OpenAPIConfig controls whether a server serves its own specification, and to
+// whom.
+//
+// A specification is a complete description of an application's attack surface —
+// every route, every parameter, every shape it accepts — so exposing one is a
+// decision rather than a default worth assuming.
+type OpenAPIConfig struct {
+	// Access is one of "public", "token" or "disabled". Empty means public,
+	// which is what a developer running locally wants; a deployment that cares
+	// sets it explicitly.
+	Access string `yaml:"access"`
+	// Token is the shared secret required when Access is "token". Access is
+	// treated as disabled when this is empty, so a half-finished configuration
+	// cannot publish the specification by accident.
+	Token string `yaml:"token"`
+	// Path the specification is served at. Defaults to /openapi.json.
+	Path string `yaml:"path"`
+}
+
 // GinbootRootConfig is the root configuration structure
 type GinbootRootConfig struct {
 	Server    ServerConfig                   `yaml:"server"`
 	Services  map[string]ServiceTargetConfig `yaml:"services"`
 	DB        DBConfig                       `yaml:"db"`
 	Telemetry TelemetryConfig                `yaml:"telemetry"`
+	OpenAPI   OpenAPIConfig                  `yaml:"openapi"`
 }
 
 // Config wraps the root ginboot configuration block
@@ -160,6 +180,18 @@ func (cfg *Config) ApplyEnvironmentOverrides() {
 	}
 	if svcName := getFirstEnv("OTEL_SERVICE_NAME", "GINBOOT_TELEMETRY_SERVICE_NAME"); svcName != "" {
 		cfg.Ginboot.Telemetry.ServiceName = svcName
+	}
+
+	// 4. OpenAPI overrides. The environment wins because the platform hosting an
+	// application decides this, not a file committed to its repository.
+	if access := os.Getenv("GINBOOT_OPENAPI_ACCESS"); access != "" {
+		cfg.Ginboot.OpenAPI.Access = access
+	}
+	if token := os.Getenv("GINBOOT_OPENAPI_TOKEN"); token != "" {
+		cfg.Ginboot.OpenAPI.Token = token
+	}
+	if path := os.Getenv("GINBOOT_OPENAPI_PATH"); path != "" {
+		cfg.Ginboot.OpenAPI.Path = path
 	}
 }
 
