@@ -109,7 +109,21 @@ func (s *Server) RegisterWorker(name string, interval time.Duration, fn TaskFunc
 }
 
 // RegisterWorkerStruct registers a struct implementing the Worker interface.
+//
+// A worker that also states a cron expression is registered on that rather than
+// on its interval. It is the more specific instruction, and the only one a
+// runtime that freezes between invocations can honour without keeping external
+// state, so it wins when a type offers both.
 func (s *Server) RegisterWorkerStruct(worker Worker) {
+	if cronWorker, ok := worker.(CronWorker); ok {
+		if expr := strings.TrimSpace(cronWorker.Cron()); expr != "" {
+			s.scheduler.RegisterTask(TaskOptions{
+				Name:     worker.Name(),
+				CronExpr: expr,
+			}, worker.Execute)
+			return
+		}
+	}
 	s.RegisterWorker(worker.Name(), worker.Interval(), worker.Execute)
 }
 
@@ -150,6 +164,7 @@ func (s *Server) Start(port int) error {
 	// After the application's routes, because the specification it serves is
 	// built as those routes are registered.
 	s.registerOpenAPIEndpoint()
+	s.registerWorkersEndpoint()
 
 	exportPath := os.Getenv("GINBOOT_EXPORT_SWAGGER")
 	if exportPath != "" {

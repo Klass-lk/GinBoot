@@ -3,12 +3,27 @@ package ginboot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/robfig/cron/v3"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+)
+
+const (
+	schedulerTracer = "github.com/klass-lk/ginboot/scheduler"
+	// workerSpanName is stable and shared by every worker, with the worker's own
+	// name carried as an attribute. A span named after the worker would make
+	// "show me every scheduled run" impossible to express as one query.
+	workerSpanName = "ginboot.worker.run"
 )
 
 // Worker defines an interface for structured background workers.
@@ -35,6 +50,11 @@ type ScheduledTask struct {
 	taskFunc TaskFunc
 	running  bool
 	mu       sync.Mutex
+
+	// schedule is the parsed form of options.CronExpr, nil for interval tasks.
+	// Parsed once at registration so a malformed expression is refused where
+	// someone is watching, rather than on the first tick that needed it.
+	schedule cron.Schedule
 }
 
 func (t *ScheduledTask) Options() TaskOptions {
@@ -101,6 +121,14 @@ type Scheduler struct {
 	cancelFunc context.CancelFunc
 	wg         sync.WaitGroup
 	mu         sync.Mutex
+
+	// tick is how often this runtime is woken to look for due work. It bounds
+	// the resolution of every schedule, so registration validates against it.
+	tick time.Duration
+	// unschedulableWarn keeps the explanation for skipping interval workers to once
+	// per process. Repeated every tick it would be noise; said once at the first
+	// tick that skipped something, it is the answer to why nothing ran.
+	unschedulableWarn sync.Once
 }
 
 func NewScheduler(logger Logger) *Scheduler {
@@ -110,6 +138,7 @@ func NewScheduler(logger Logger) *Scheduler {
 	s := &Scheduler{
 		tasks:  make(map[string]*ScheduledTask),
 		logger: logger,
+		tick:   tickFromEnv(),
 	}
 	// Register default cloud event parsers
 	s.RegisterParser(&AWSEventBridgeParser{})
@@ -134,10 +163,30 @@ func (s *Scheduler) RegisterTask(options TaskOptions, fn TaskFunc) {
 	if options.SkipOverlaps == false {
 		options.SkipOverlaps = true
 	}
-	s.tasks[options.Name] = &ScheduledTask{
+
+	task := &ScheduledTask{
 		options:  options,
 		taskFunc: fn,
 	}
+
+	// A cron expression is parsed and checked here rather than at the first
+	// firing, because "never fired" is indistinguishable from "not due yet" from
+	// the outside. Refusing at registration puts the complaint in the startup
+	// log, where whoever wrote the expression is still looking.
+	if expr := strings.TrimSpace(options.CronExpr); expr != "" {
+		schedule, err := parseCron(expr)
+		if err != nil {
+			s.logger.Error(fmt.Sprintf("[Scheduler] not registering worker '%s': %v", options.Name, err))
+			return
+		}
+		if err := validateAgainstTick(options.Name, expr, schedule, s.tick); err != nil {
+			s.logger.Error(fmt.Sprintf("[Scheduler] not registering worker: %v", err))
+			return
+		}
+		task.schedule = schedule
+	}
+
+	s.tasks[options.Name] = task
 }
 
 // GetTasks returns all registered scheduled tasks.
@@ -188,7 +237,13 @@ func (s *Scheduler) ExecuteWorkerByName(ctx context.Context, name string) error 
 	return s.executeTaskSafe(ctx, task)
 }
 
-// ExecuteAllWorkers executes all registered background tasks synchronously once (for cloud cron triggers).
+// ExecuteAllWorkers executes every registered task once, regardless of whether
+// it is due.
+//
+// Deprecated: use ExecuteDueWorkers. Driving a tick with this gives every worker
+// the tick's schedule instead of its own — an hourly job firing twelve times an
+// hour. It remains for callers that genuinely mean "run everything now", such as
+// a manual trigger.
 func (s *Scheduler) ExecuteAllWorkers(ctx context.Context) map[string]error {
 	s.mu.Lock()
 	tasks := make([]*ScheduledTask, 0, len(s.tasks))
@@ -226,6 +281,17 @@ func (s *Scheduler) runTaskLoop(ctx context.Context, t *ScheduledTask) {
 		_ = s.executeTaskSafe(ctx, t)
 	}
 
+	// A cron task has no interval to build a ticker from, and time.NewTicker
+	// panics on a non-positive duration — so this is not merely the wrong
+	// schedule for it, it is a crash at startup. Scheduling it by expression here
+	// also means a worker behaves the same in development, where this loop runs,
+	// as it does deployed, where the tick does the waking. A schedule that only
+	// takes effect in production is a schedule nobody can test.
+	if t.schedule != nil {
+		s.runCronLoop(ctx, t)
+		return
+	}
+
 	ticker := time.NewTicker(t.options.Interval)
 	defer ticker.Stop()
 
@@ -234,6 +300,35 @@ func (s *Scheduler) runTaskLoop(ctx context.Context, t *ScheduledTask) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			_ = s.executeTaskSafe(ctx, t)
+		}
+	}
+}
+
+// runCronLoop waits for each firing in turn rather than polling.
+//
+// The deployed runtime evaluates a window because it is woken on someone else's
+// schedule and has to ask what it missed. A process that is always running has
+// no such constraint: it can be told exactly when the next firing is and sleep
+// until then, which is both more accurate and cheaper than waking to discover
+// there is nothing to do.
+func (s *Scheduler) runCronLoop(ctx context.Context, t *ScheduledTask) {
+	for {
+		// UTC for the reason dueIn documents: a schedule must not mean a
+		// different instant here than it will once deployed.
+		now := time.Now().UTC()
+		next := t.schedule.Next(now)
+		if next.IsZero() {
+			s.logger.Warn(fmt.Sprintf("[Scheduler] worker '%s' has no further firings; its loop is stopping", t.options.Name))
+			return
+		}
+
+		timer := time.NewTimer(next.Sub(now))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
 			_ = s.executeTaskSafe(ctx, t)
 		}
 	}
@@ -256,6 +351,43 @@ func (s *Scheduler) executeTaskSafe(ctx context.Context, t *ScheduledTask) (err 
 			t.mu.Unlock()
 		}()
 	}
+
+	// The run span, and the record of what it did.
+	//
+	// Started here rather than around the whole tick so that one span describes
+	// one run of one worker: a tick's span would report a duration that belongs
+	// to whichever workers happened to be due, which is the number nobody can act
+	// on. Registered before the recovery below so that it closes after it — defers
+	// run last-registered-first — and therefore observes the error a panic
+	// produced rather than reporting the run as successful.
+	//
+	// otel.Tracer resolves to a no-op unless an application imported
+	// instrumentation, so this costs an interface call in the applications that
+	// did not.
+	ctx, span := otel.Tracer(schedulerTracer).Start(ctx, workerSpanName,
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("ginboot.worker", t.options.Name),
+			attribute.String("ginboot.worker.schedule", t.scheduleDescription()),
+		))
+	runStart := time.Now()
+	defer func() {
+		span.SetAttributes(
+			attribute.String("ginboot.worker.outcome", outcomeOf(err)),
+			attribute.Int64("ginboot.worker.duration_ms", time.Since(runStart).Milliseconds()),
+		)
+		switch {
+		case err == nil || errors.Is(err, ErrIncomplete):
+			// Unfinished is not failed. Marking it an error would put a job that
+			// is working through a backlog exactly as designed into the same
+			// bucket as one that is broken.
+			span.SetStatus(codes.Ok, "")
+		default:
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
 
 	// Panic Recovery
 	defer func() {

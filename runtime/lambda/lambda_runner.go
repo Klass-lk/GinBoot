@@ -40,8 +40,13 @@ func NewRunnerWithScheduler(scheduler *ginboot.Scheduler) ginboot.Runner {
 						err := scheduler.ExecuteWorkerByName(ctx, event.TaskName)
 						return map[string]interface{}{"status": "scheduled worker executed", "provider": event.Provider, "task": event.TaskName}, err
 					}
-					results := scheduler.ExecuteAllWorkers(ctx)
-					return map[string]interface{}{"status": "all scheduled workers executed", "provider": event.Provider, "results": results}, nil
+					// An unnamed rule is the per-application tick: it says "look for
+					// work", not "run everything". Running everything would give
+					// each worker the tick's schedule instead of its own — an
+					// hourly job firing twelve times an hour, a daily one two
+					// hundred and eighty-eight times.
+					results := scheduler.ExecuteDueWorkers(ctx)
+					return map[string]interface{}{"status": "due workers executed", "provider": event.Provider, "results": results}, nil
 				}
 			}
 
