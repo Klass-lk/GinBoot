@@ -94,7 +94,19 @@ func Setup(ctx context.Context, serviceName, version string) (func(context.Conte
 	// Set up metric provider
 	var meterProvider *metric.MeterProvider
 	if hasOTLPConfig {
-		metricExporter, err := otlpmetrichttp.New(exporterCtx, otlpmetrichttp.WithTimeout(500*time.Millisecond))
+		// No WithTimeout here on purpose. An explicit option overrides
+		// OTEL_EXPORTER_OTLP_TIMEOUT entirely, and the 500ms this used to name
+		// was shorter than a single authenticated round trip to an OTLP gateway
+		// — measured at ~850ms to Grafana Cloud ap-southeast-1. Every export
+		// aborted mid-flight and retried, so metrics never arrived while traces
+		// and logs, which carry no such override, went through fine. The result
+		// reads like a broken metrics backend rather than a timeout set too low.
+		//
+		// Left unset, the SDK reads the environment and falls back to 10s. That
+		// is not a stall risk on a freezing runtime: Flush bounds the drain at
+		// the end of an invocation with its own deadline, so the export budget
+		// there is Flush's, not this one's.
+		metricExporter, err := otlpmetrichttp.New(exporterCtx)
 		if err != nil {
 			fmt.Printf("[Telemetry Warning] Failed to create metric exporter: %v. Falling back to default provider.\n", err)
 			meterProvider = metric.NewMeterProvider(metric.WithResource(res))
