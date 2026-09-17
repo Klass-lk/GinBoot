@@ -11,6 +11,7 @@
     "telemetry",
     "storage-s3",
     "workers",
+    "event-triggers",
     "openapi-swagger"
   ]
 }

@@ -1,0 +1,135 @@
+---
+title: "Event Triggers"
+description: "Consume SQS queues and other event sources from your Ginboot application, with the queue provisioned for you."
+icon: Radio
+---
+
+A Ginboot application can be woken by three things: an HTTP request, a clock, and an event. This page is the third.
+
+You declare in code that you consume a queue. Ginboot Cloud reads that declaration from the running application, creates the queue, wires it to your function, and tells your code where it landed.
+
+## Declaring a consumer
+
+```go
+package main
+
+import (
+	"context"
+
+	"github.com/klass-lk/ginboot"
+	"github.com/my-project/models"
+)
+
+func main() {
+	app := ginboot.New()
+
+	app.RegisterConsumer(ginboot.NewQueueConsumer("sms", ginboot.Queue("sms"),
+		func(ctx context.Context, sms models.SMS) error {
+			return smsService.Send(ctx, sms)
+		}))
+
+	app.Start(8080)
+}
+```
+
+The message body is decoded into your type the same way a route handler binds a request body. A message that cannot be decoded fails, and after five attempts lands in the dead letter queue — it is never deleted unread.
+
+`ginboot.Queue("sms")` is a *logical* name, local to your application. The real queue is named for your application and environment, so two applications may both have an `sms` queue.
+
+## Sending to the queue
+
+```go
+url, err := ginboot.QueueURL("sms")
+if err != nil {
+	// ginboot.ErrQueueNotProvisioned — see "Two deployments" below.
+	return err
+}
+```
+
+`QueueURL` reads the variable the platform injects once the queue exists. It returns `ErrQueueNotProvisioned` rather than an empty string, because "not deployed yet" and "you asked for a queue you never declared" are both an absence and only one of them is fixed by deploying again.
+
+Do not call `MustQueueURL` while your application is starting. A panic there would stop the application before it can serve the manifest that gets the queue created.
+
+## Two deployments
+
+A trigger is discovered by asking the running application, which can only happen once it is running. So the queue arrives on the deployment *after* the one that introduced the consumer:
+
+1. **First deploy.** Your consumer is registered and recorded. The console lists it and says the queue has not been created yet. `QueueURL` returns `ErrQueueNotProvisioned`.
+2. **Second deploy.** The queue, its dead letter queue and the mapping are created. Messages flow.
+
+The console says this plainly rather than leaving you to discover it. It is the same two-step that [background workers](/docs/3-features/workers) go through, one turn sharper — here the *sending* side is affected too.
+
+## What gets created
+
+For each managed queue:
+
+| Resource | Setting | Why |
+|---|---|---|
+| Queue | `VisibilityTimeout: 960` | Above the worker's 900-second timeout, so a message is never redelivered while your handler is still working on it |
+| Queue | `MessageRetentionPeriod: 14 days` | The maximum SQS allows |
+| Dead letter queue | `maxReceiveCount: 5` | A message that cannot be handled goes somewhere, instead of occupying the consumer forever |
+| Mapping | `ReportBatchItemFailures` | One bad message in a batch of ten redelivers only itself |
+
+Your application's execution role is granted access to its own queues automatically. You do not need to write an IAM statement for a queue you did not name.
+
+## Partial batch failures
+
+Messages are handled one at a time, and only the ones that fail are redelivered:
+
+```go
+app.RegisterConsumer(ginboot.NewQueueConsumer("orders", ginboot.Queue("orders"),
+	func(ctx context.Context, order models.Order) error {
+		if err := billing.Charge(ctx, order); err != nil {
+			// This message is retried. The others in the batch are not.
+			return err
+		}
+		return nil
+	}))
+```
+
+A handler that panics is one failed message, not a lost batch. Messages already handled in the same batch are never redelivered because of it.
+
+## Batch size and FIFO
+
+```go
+// At most five messages per invocation.
+ginboot.NewQueueConsumerWithBatchSize("bulk", ginboot.Queue("bulk"), 5, handle)
+
+// A FIFO queue. Every send needs a message group id.
+ginboot.NewQueueConsumer("ledger", ginboot.FIFOQueue("ledger"), handle)
+```
+
+## Using a queue you already have
+
+```go
+ginboot.NewQueueConsumer("legacy",
+	ginboot.ExternalQueue("arn:aws:sqs:ap-southeast-1:123456789012:legacy-queue"),
+	handle)
+```
+
+Ginboot subscribes your function to it and grants access, but does not create, configure or delete it.
+
+Two things stay yours. Declare it by **full ARN** — a bare name cannot say which region the queue is in, and the manifest reports a bare name as undeployable rather than letting it silently receive nothing. And set its **visibility timeout to at least 900 seconds**: the SQS default of 30 means your handler is still running when the message is handed to a second invocation.
+
+## Testing locally
+
+Registered consumers are listed at `/_ginboot/triggers`. In debug mode you can also deliver a message by hand:
+
+```bash
+curl -X POST localhost:8080/_ginboot/triggers/sms \
+  -d '{"to":"+94771234567","text":"hello"}'
+```
+
+This runs the real handler through the real dispatch path — same spans, same panic containment, same error reporting — and tells you what happened. It is absent from any build not running in debug mode, because it invokes your application code with a caller-supplied payload.
+
+## Lambda
+
+Use `NewRunnerFor`, which wires both your consumers and your scheduled workers:
+
+```go
+if os.Getenv("LAMBDA_TASK_ROOT") != "" {
+	app.SetRunner(lambdarunner.NewRunnerFor(app))
+}
+```
+
+`NewRunner()` and `NewRunnerWithScheduler()` still work but are deprecated. `NewRunner()` in particular wires neither workers nor consumers, and gives no sign of it — a registered worker that never runs looks exactly like one that is not due yet.

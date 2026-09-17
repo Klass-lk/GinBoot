@@ -47,6 +47,14 @@ type ServiceTransport interface {
 	CallAsync(ctx context.Context, endpoint ServiceEndpoint, req ServiceRequest) error
 }
 
+// RawCaller is an optional capability of a ServiceClient: it returns the
+// untouched transport response instead of collapsing a non-2xx into a flat
+// error string. Typed contract clients need it to rebuild the remote error
+// from the response body and status. DefaultServiceClient implements it.
+type RawCaller interface {
+	CallRaw(ctx context.Context, method string, serviceName string, action string, payload interface{}, headers map[string]string) (*ServiceResponse, error)
+}
+
 // ServiceClient is the main facade for making service-to-service calls.
 type ServiceClient interface {
 	Call(ctx context.Context, serviceName string, action string, payload interface{}, target interface{}) error

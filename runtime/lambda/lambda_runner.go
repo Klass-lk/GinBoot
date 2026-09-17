@@ -12,11 +12,39 @@ import (
 	"github.com/klass-lk/ginboot"
 )
 
-func NewRunner() ginboot.Runner {
-	return NewRunnerWithScheduler(nil)
+// NewRunnerFor builds the runner for a server, wiring everything that server
+// registered.
+//
+// This is the constructor to use. The two below take their collaborators as
+// arguments, which means an application that registered workers and called
+// NewRunner() gets a runtime that silently runs none of them — there is nothing
+// to notice, because a job that never fires looks exactly like a job that is not
+// due yet. Adding consumers to that scheme would have added a third way to be
+// quietly wrong, so the server is passed whole and the runner reads what it
+// needs.
+func NewRunnerFor(server *ginboot.Server) ginboot.Runner {
+	if server == nil {
+		return newRunner(nil, nil)
+	}
+	return newRunner(server.Scheduler(), server.Consumers())
 }
 
+// NewRunner builds a runner with no scheduler and no consumers.
+//
+// Deprecated: use NewRunnerFor, which cannot leave registered workers or
+// consumers unwired.
+func NewRunner() ginboot.Runner {
+	return newRunner(nil, nil)
+}
+
+// NewRunnerWithScheduler builds a runner that can run scheduled workers.
+//
+// Deprecated: use NewRunnerFor, which also wires event consumers.
 func NewRunnerWithScheduler(scheduler *ginboot.Scheduler) ginboot.Runner {
+	return newRunner(scheduler, nil)
+}
+
+func newRunner(scheduler *ginboot.Scheduler, consumers *ginboot.ConsumerRegistry) ginboot.Runner {
 	return func(engine *gin.Engine) error {
 		ginLambdaV1 := ginadapter.New(engine)
 		ginLambdaV2 := ginadapter.NewV2(engine)
@@ -47,6 +75,20 @@ func NewRunnerWithScheduler(scheduler *ginboot.Scheduler) ginboot.Runner {
 					// hundred and eighty-eight times.
 					results := scheduler.ExecuteDueWorkers(ctx)
 					return map[string]interface{}{"status": "due workers executed", "provider": event.Provider, "results": results}, nil
+				}
+			}
+
+			// Events, before the API Gateway branches below.
+			//
+			// Ordered after the scheduler's parser deliberately: the scheduler's
+			// tick is itself an EventBridge rule, and an event matcher placed
+			// first would swallow it. Ordered before the HTTP branches because
+			// those end in a fallback that treats an unrecognised payload as a v1
+			// proxy request — an SQS batch reaching that far would be answered
+			// with a 404 page and acknowledged as handled.
+			if consumers != nil && consumers.Len() > 0 {
+				if event, ok := looksLikeSQS(req); ok {
+					return handleSQS(ctx, consumers, event)
 				}
 			}
 

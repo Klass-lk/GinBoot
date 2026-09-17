@@ -104,55 +104,89 @@ func (s *Scheduler) Manifest() WorkersManifest {
 	return WorkersManifest{Tick: tick.String(), Runtime: runtime, Workers: workers}
 }
 
-// registerWorkersEndpoint mounts the manifest endpoint. Called from Start,
-// beside the OpenAPI and health routes.
-func (s *Server) registerWorkersEndpoint() {
-	access := strings.ToLower(strings.TrimSpace(os.Getenv(workersAccessEnv)))
+// manifestAccess resolves how the framework's description endpoints are served.
+//
+// Shared by the worker and trigger manifests rather than decided twice. The two
+// describe the same process to the same caller, so a configuration that
+// protected one and published the other would be a setting nobody chose — and
+// the shape of that mistake is that the endpoint someone forgot is the one left
+// open.
+//
+// Returns serve=false when nothing should be mounted, having already said why.
+func manifestAccess(endpoint string) (access string, token string, serve bool) {
+	access = strings.ToLower(strings.TrimSpace(os.Getenv(workersAccessEnv)))
 	if access == "" {
 		access = WorkersPublic
 	}
 
 	if access == WorkersDisabled {
-		return
+		return "", "", false
 	}
 
-	token := os.Getenv(workersTokenEnv)
+	token = os.Getenv(workersTokenEnv)
 
 	// Fail closed. "token" with no token is a configuration someone started and
 	// did not finish, and the safe reading is that they meant to restrict the
 	// manifest — not that they meant to publish it.
 	if access == WorkersToken && token == "" {
-		fmt.Printf("[ginboot] %s is \"token\" but no token is set; not serving the worker manifest. Set %s.\n",
-			workersAccessEnv, workersTokenEnv)
-		return
+		fmt.Printf("[ginboot] %s is \"token\" but no token is set; not serving %s. Set %s.\n",
+			workersAccessEnv, endpoint, workersTokenEnv)
+		return "", "", false
 	}
 
 	if access != WorkersPublic && access != WorkersToken {
-		fmt.Printf("[ginboot] %s %q is not one of %q, %q or %q; not serving the worker manifest\n",
-			workersAccessEnv, access, WorkersPublic, WorkersToken, WorkersDisabled)
-		return
+		fmt.Printf("[ginboot] %s %q is not one of %q, %q or %q; not serving %s\n",
+			workersAccessEnv, access, WorkersPublic, WorkersToken, WorkersDisabled, endpoint)
+		return "", "", false
 	}
 
-	path := strings.TrimSpace(os.Getenv(workersPathEnv))
+	return access, token, true
+}
+
+// authorizeManifest reports whether a request may read a manifest, answering it
+// directly when not.
+func authorizeManifest(c *gin.Context, access, token string) bool {
+	if access != WorkersToken {
+		return true
+	}
+	// Constant time, because a comparison that returns early leaks the
+	// secret one byte at a time to anyone willing to measure.
+	presented := c.GetHeader(WorkersTokenHeader)
+	if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "this manifest requires a token",
+		})
+		return false
+	}
+	return true
+}
+
+// manifestPath resolves the mount point for a manifest endpoint.
+func manifestPath(override, fallback string) string {
+	path := strings.TrimSpace(override)
 	if path == "" {
-		path = defaultWorkersPath
+		path = fallback
 	}
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
+	return path
+}
+
+// registerWorkersEndpoint mounts the manifest endpoint. Called from Start,
+// beside the OpenAPI and health routes.
+func (s *Server) registerWorkersEndpoint() {
+	access, token, serve := manifestAccess("the worker manifest")
+	if !serve {
+		return
+	}
+
+	path := manifestPath(os.Getenv(workersPathEnv), defaultWorkersPath)
 
 	scheduler := s.scheduler
 	s.engine.GET(path, func(c *gin.Context) {
-		if access == WorkersToken {
-			// Constant time, because a comparison that returns early leaks the
-			// secret one byte at a time to anyone willing to measure.
-			presented := c.GetHeader(WorkersTokenHeader)
-			if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"error": "the worker manifest requires a token",
-				})
-				return
-			}
+		if !authorizeManifest(c, access, token) {
+			return
 		}
 		if scheduler == nil {
 			c.JSON(http.StatusOK, WorkersManifest{Workers: []WorkerDescription{}})
