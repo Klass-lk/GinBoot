@@ -29,6 +29,7 @@ type Server struct {
 	fileService   FileService
 	logger        Logger
 	scheduler     *Scheduler
+	consumers     *ConsumerRegistry
 	config        *config.Config
 	serviceClient service.ServiceClient
 
@@ -63,6 +64,7 @@ func New() *Server {
 		engine:        engine,
 		logger:        logger,
 		scheduler:     NewScheduler(logger),
+		consumers:     NewConsumerRegistry(logger),
 		config:        cfg,
 		serviceClient: svcClient,
 	}
@@ -97,6 +99,32 @@ func (s *Server) SetServiceClient(client service.ServiceClient) *Server {
 
 func (s *Server) Scheduler() *Scheduler {
 	return s.scheduler
+}
+
+// Consumers returns the registry of event consumers.
+func (s *Server) Consumers() *ConsumerRegistry {
+	return s.consumers
+}
+
+// RegisterConsumer registers a handler for an event source.
+//
+// A refused registration is logged and dropped rather than returned, matching
+// RegisterWorkerStruct beside it: these are called from main, in a run of
+// statements nobody wants to error-check individually, and the failures are all
+// of a kind a developer fixes at the keyboard — a missing name, a queue declared
+// by name where an ARN was wanted. Logging names the consumer at startup, which
+// is where whoever wrote it is looking.
+//
+// Use RegisterConsumerErr where the caller does want the error.
+func (s *Server) RegisterConsumer(c Consumer) {
+	if err := s.RegisterConsumerErr(c); err != nil {
+		s.logger.Error(fmt.Sprintf("[Consumers] %v", err))
+	}
+}
+
+// RegisterConsumerErr is RegisterConsumer, returning why a registration failed.
+func (s *Server) RegisterConsumerErr(c Consumer) error {
+	return s.consumers.Register(c)
 }
 
 // RegisterWorker registers a scheduled background worker with a custom time interval.
@@ -165,6 +193,8 @@ func (s *Server) Start(port int) error {
 	// built as those routes are registered.
 	s.registerOpenAPIEndpoint()
 	s.registerWorkersEndpoint()
+	s.registerTriggersEndpoint()
+	s.registerTriggerDeliveryEndpoint()
 
 	exportPath := os.Getenv("GINBOOT_EXPORT_SWAGGER")
 	if exportPath != "" {

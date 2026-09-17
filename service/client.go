@@ -77,6 +77,42 @@ func (c *DefaultServiceClient) Call(ctx context.Context, serviceName string, act
 	return c.CallWithMethod(ctx, "POST", serviceName, action, payload, target)
 }
 
+// CallRaw performs a service call and returns the transport response as-is.
+// A non-2xx status is *not* an error here: the response carries the status and
+// body so the caller can rebuild the remote error faithfully. Only genuine
+// transport failures (resolution, connection, read) return an error.
+func (c *DefaultServiceClient) CallRaw(ctx context.Context, method string, serviceName string, action string, payload interface{}, headers map[string]string) (*ServiceResponse, error) {
+	c.mu.RLock()
+	resolver := c.resolver
+	c.mu.RUnlock()
+
+	endpoint, err := resolver.ResolveEndpoint(serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve service %s: %w", serviceName, err)
+	}
+
+	transport, err := c.getTransport(endpoint.Protocol)
+	if err != nil {
+		return nil, err
+	}
+
+	req := ServiceRequest{
+		ServiceName: serviceName,
+		Action:      action,
+		Method:      method,
+		Headers:     c.prepareHeaders(ctx, headers),
+		Payload:     payload,
+	}
+
+	resp, err := transport.Call(ctx, endpoint, req)
+	if resp != nil {
+		// The transport reports a non-2xx as an error too; a raw caller wants
+		// the response instead and decides for itself what the status means.
+		return resp, nil
+	}
+	return nil, err
+}
+
 func (c *DefaultServiceClient) CallWithMethod(ctx context.Context, method string, serviceName string, action string, payload interface{}, target interface{}) error {
 	c.mu.RLock()
 	resolver := c.resolver

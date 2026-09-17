@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -127,6 +128,28 @@ func (c *Context) RecordError(err error) {
 
 func (c *Context) SendError(err error) {
 	c.RecordError(err)
+
+	// A failure from a service we called is ours, not our caller's: answering
+	// 404 because user-service answered 404 makes an upstream outage look like
+	// a client mistake. Forwarding is opt-in via Propagate.
+	var remoteErr *RemoteError
+	if errors.As(err, &remoteErr) {
+		if !remoteErr.Propagate {
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error_code": "UPSTREAM_ERROR",
+				"message":    fmt.Sprintf("upstream service %s failed", remoteErr.Service),
+			})
+			return
+		}
+		body := gin.H{"error_code": strconv.Itoa(remoteErr.StatusCode), "message": remoteErr.Error()}
+		var upstream ApiError
+		if errors.As(remoteErr.Err, &upstream) {
+			body = gin.H{"error_code": upstream.ErrorCode, "message": upstream.Message}
+		}
+		c.JSON(remoteErr.StatusCode, body)
+		return
+	}
+
 	var customErr ApiError
 	if errors.As(err, &customErr) {
 		statusCode := http.StatusBadRequest
