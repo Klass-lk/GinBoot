@@ -277,3 +277,70 @@ func TestManifestFlagsUnusableManagedName(t *testing.T) {
 		t.Fatal("a managed name SQS would reject was reported deployable")
 	}
 }
+
+func TestRegisterRejectsNil(t *testing.T) {
+	r := NewConsumerRegistry(NewSlogLogger(nil))
+	if err := r.Register(nil); err == nil {
+		t.Fatal("a nil consumer was accepted")
+	}
+}
+
+// A registry may hold consumers of several kinds. Queue matching must step over
+// the ones that are not queues rather than inspect their refs as ARNs.
+func TestMatchQueueARNIgnoresOtherSourceKinds(t *testing.T) {
+	topic := &testConsumer{
+		name:   "alerts",
+		source: EventSource{Kind: SourceTopic, Ref: "arn:aws:sns:ap-southeast-1:123456789012:alerts", Managed: false},
+		fail:   map[string]error{},
+	}
+	queue := queueConsumerFor("sms", "sms", true)
+	r := newTestRegistry(t, topic, queue)
+
+	got, ok := r.MatchQueueARN("arn:aws:sqs:ap-southeast-1:123456789012:Ginboot-a-b-sms")
+	if !ok {
+		t.Fatal("the queue consumer was not matched")
+	}
+	if got.Name() != "sms" {
+		t.Fatalf("a queue was routed to the %q consumer", got.Name())
+	}
+
+	// And a topic ARN matches no queue consumer.
+	if _, ok := r.MatchQueueARN("arn:aws:sns:ap-southeast-1:123456789012:alerts"); ok {
+		t.Error("a topic ARN matched a queue consumer")
+	}
+}
+
+func TestMustQueueURLReturnsAProvisionedURL(t *testing.T) {
+	const url = "https://sqs.ap-southeast-1.amazonaws.com/123456789012/Ginboot-a-b-sms"
+	t.Setenv("GINBOOT_QUEUE_SMS_URL", url)
+
+	if got := MustQueueURL("sms"); got != url {
+		t.Fatalf("MustQueueURL returned %q", got)
+	}
+}
+
+// MustQueueURL is for a caller that would rather fail loudly than send into
+// nothing. It must not return an empty string.
+func TestMustQueueURLPanicsWhenNotProvisioned(t *testing.T) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("MustQueueURL returned rather than panicking for an unprovisioned queue")
+		}
+		err, ok := recovered.(error)
+		if !ok || !errors.Is(err, ErrQueueNotProvisioned) {
+			t.Fatalf("the panic carried %v rather than ErrQueueNotProvisioned", recovered)
+		}
+	}()
+	MustQueueURL("never-declared")
+}
+
+// A URL with no path separator still yields a name rather than an empty string,
+// so a malformed injection degrades to the suffix match instead of matching
+// everything.
+func TestProvisionedQueueNameHandlesAURLWithNoPath(t *testing.T) {
+	t.Setenv("GINBOOT_QUEUE_ODD_URL", "Ginboot-a-b-odd")
+	if got := provisionedQueueName("odd"); got != "Ginboot-a-b-odd" {
+		t.Fatalf("provisionedQueueName = %q", got)
+	}
+}

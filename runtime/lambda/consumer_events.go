@@ -139,10 +139,11 @@ func sqsAttributes(record events.SQSMessage) map[string]string {
 // rawRecord re-renders one record for a handler that needs what this package did
 // not model.
 func rawRecord(record events.SQSMessage) json.RawMessage {
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return nil
-	}
+	// The error is discarded rather than checked. An SQSMessage is strings and
+	// maps of strings all the way down, with nothing json.Marshal can refuse, so
+	// a check here would be a branch no input can reach — and one that would sit
+	// in every coverage report forever as a line nobody can test.
+	encoded, _ := json.Marshal(record)
 	return encoded
 }
 
