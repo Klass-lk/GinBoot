@@ -1,0 +1,200 @@
+---
+title: "Migration Overview"
+description: "How to move an existing API onto Ginboot — an incremental strategy for Go codebases, and a porting strategy for APIs written in Node.js, Python, Java, .NET, Ruby or PHP."
+icon: Compass
+---
+
+This section is about moving an API you already have onto Ginboot. It covers two
+different problems that people often confuse:
+
+<Cards>
+  <Card
+    title="Migrating an existing Go app"
+    href="/docs/5-migration/from-go"
+    description="Gin, net/http, Echo, Fiber, Chi or gorilla/mux. Incremental: the app keeps running the whole way."
+  />
+  <Card
+    title="Porting from another language"
+    href="/docs/5-migration/from-other-languages"
+    description="Express, NestJS, FastAPI, Django, Spring Boot, ASP.NET, Rails or Laravel. Contract first, then a cutover."
+  />
+  <Card
+    title="Playbook for coding agents"
+    href="/docs/5-migration/agent-playbook"
+    description="The same two migrations as a deterministic procedure, with the exact API surface and verification commands."
+  />
+  <Card
+    title="Getting Started"
+    href="/docs/1-getting-started"
+    description="If there is nothing to migrate yet, start here instead."
+  />
+</Cards>
+
+## The one thing that decides the strategy
+
+**Ginboot is Gin underneath, and it does not hide it.** `server.Engine()` returns the
+plain `*gin.Engine`, and a handler with Gin's own `func(c *gin.Context)` signature can be
+registered on a Ginboot route group unchanged.
+
+That single fact splits the work in two:
+
+| Your API today | Strategy | Downtime | Guide |
+| :--- | :--- | :--- | :--- |
+| Go + Gin | **Incremental.** Swap the entrypoint, keep every route, convert one controller at a time. | None | [From Go](/docs/5-migration/from-go) |
+| Go + another router | **Incremental, with rewritten handlers.** Routing and middleware are rewritten; services, models and tests are kept. | None | [From Go](/docs/5-migration/from-go) |
+| Another language | **Port + cutover.** New service, same contract, traffic moved path by path. | None, if you run both | [From other languages](/docs/5-migration/from-other-languages) |
+
+<Callout type="warn" title="Do not start with a rewrite">
+The most common way a migration fails is starting a new project, porting everything, and
+trying to switch in one step. Both guides here are built so that the application is
+running and serving traffic at the end of *every* step, not just the last one.
+</Callout>
+
+## What Ginboot replaces, and what it leaves alone
+
+Migrating is mostly *deleting* code you wrote to fill gaps the framework now fills.
+
+<TypeTable
+  type={{
+    'Routing and handlers': {
+      type: 'replaced',
+      description: 'Controllers implementing ginboot.Controller. Handlers return (T, error) instead of writing responses.',
+    },
+    'Request binding and validation': {
+      type: 'replaced',
+      description: 'The request struct is a handler parameter. Ginboot binds and validates it before your code runs.',
+    },
+    'Error responses': {
+      type: 'replaced',
+      description: 'Return a ginboot.ApiError. The status code and JSON body are derived from it.',
+    },
+    'Config loading': {
+      type: 'replaced',
+      description: 'ginboot.yml plus automatic .env loading, read back through server.Config().',
+    },
+    'Data access': {
+      type: 'replaced',
+      description: 'GenericRepository[T] over MongoDB, SQL, DynamoDB or in-memory. CRUD and pagination come for free.',
+    },
+    'Cron, workers, queues': {
+      type: 'replaced',
+      description: 'RegisterWorker, RegisterWorkerStruct and RegisterConsumer, on both a server and AWS Lambda.',
+    },
+    'Tracing, metrics, logs': {
+      type: 'replaced',
+      description: 'The optional telemetry plugin plus ctx.Logger(), correlated with the active trace.',
+    },
+    'Business logic': {
+      type: 'kept',
+      description: 'Services, domain types and their tests move across unchanged. They should not import the framework.',
+    },
+    'Database schema and migrations': {
+      type: 'kept',
+      description: 'Ginboot does not run schema migrations. Keep the tool you already use.',
+    },
+    'Gin middleware': {
+      type: 'kept',
+      description: 'Any gin.HandlerFunc still works, at server, group or route level.',
+    },
+  }}
+/>
+
+## The phases, in the order that keeps you safe
+
+Both guides follow the same five phases. Do them in this order — each one is a
+verifiable checkpoint, and skipping ahead is what turns a migration into a rewrite.
+
+<Steps>
+
+<Step>
+
+### Take over the entrypoint
+
+`ginboot.New()` becomes the thing that owns the process. Existing routes are mounted
+as-is on `server.Engine()`. Nothing else changes yet.
+
+**Verify:** the app builds, starts, and every existing endpoint answers exactly as before.
+
+</Step>
+
+<Step>
+
+### Move configuration in
+
+Introduce `ginboot.yml` and read settings through `server.Config()` instead of scattered
+`os.Getenv` calls. Keep the environment variable names you already deploy with — the
+`${VAR:default}` syntax exists so the values still come from the platform.
+
+**Verify:** the app starts with your real environment, and with an empty one falls back
+to the documented defaults.
+
+</Step>
+
+<Step>
+
+### Convert one endpoint group at a time
+
+Pick the least critical resource. Turn it into a controller with `Register(group *ginboot.ControllerGroup)`,
+convert its handlers to `(T, error)`, and register it with `server.RegisterController`.
+Ship it. Then take the next one.
+
+**Verify:** the converted routes return byte-identical responses. A response diff test
+against the old implementation is worth writing once and running for every group.
+
+</Step>
+
+<Step>
+
+### Move the data access layer
+
+Replace hand-written CRUD with a repository. This is where most of the deleted lines
+come from, and it is deliberately after the routing work: a repository swap under a
+converted controller is a small, contained change.
+
+**Verify:** the repository's own tests pass, then the endpoint tests still pass.
+
+</Step>
+
+<Step>
+
+### Turn on the platform features
+
+Telemetry, caching, the OpenAPI endpoint, background workers, queue consumers, Lambda.
+These are additive and independent — take them in whatever order your operations need.
+
+**Verify:** `/healthz` answers, traces arrive at your collector, and the exported
+OpenAPI spec matches the contract your clients hold.
+
+</Step>
+
+</Steps>
+
+## Definition of done
+
+A migration is finished when all of these are true. Until then it is in progress, which
+is a fine state to be in — but it is not finished.
+
+- `go build ./...` and `go test ./...` pass.
+- Every route is registered inside a controller, not on `server.Engine()` directly.
+- No handler writes a response body and returns a value; it does one or the other.
+- Every error path returns a `ginboot.ApiError` with the status code the old API used.
+- Configuration comes from `ginboot.yml` and the environment, never from a literal in code.
+- The exported OpenAPI spec matches the contract the clients were built against.
+- The old routing, binding, error-formatting and config-loading code is **deleted**, not
+  left behind unused.
+
+## For AI coding agents
+
+This documentation is published at [ginboot.com](https://ginboot.com) in an
+agent-readable form:
+
+- **[/llms.txt](https://ginboot.com/llms.txt)** — an index of every documentation page.
+- **[/llms-full.txt](https://ginboot.com/llms-full.txt)** — the full text of the entire
+  documentation in one request.
+- **`/llms.mdx/docs/<path>/content.md`** — the Markdown source of any single page. For
+  this page: [`/llms.mdx/docs/5-migration/content.md`](https://ginboot.com/llms.mdx/docs/5-migration/content.md).
+
+If you are an agent performing a migration, read the
+**[Migration Playbook for Coding Agents](/docs/5-migration/agent-playbook)** first. It
+states the exact API surface, the step order, the verification command after each step,
+and the mistakes that are most often made from stale training data.

@@ -86,6 +86,29 @@ From there, `telemetry.enabled: true` in `ginboot.yml` or an
 `OTEL_EXPORTER_OTLP_ENDPOINT` in the environment switches it on. See
 [Telemetry & Observability](docs/telemetry.md).
 
+## Migrating an existing API to Ginboot
+
+Already have an API? You do not need a rewrite.
+
+- **Go apps migrate in place.** `server.Engine()` is the real `*gin.Engine` and Ginboot
+  route groups accept Gin's own `func(c *gin.Context)` handlers, so your existing routes
+  keep serving traffic while you convert one controller at a time.
+- **APIs in other languages are ported against their contract** — Express, NestJS,
+  FastAPI, Django, Spring Boot, ASP.NET, Rails or Laravel — then traffic moves path by
+  path with both services running.
+
+| Guide | |
+| :--- | :--- |
+| Start here | [Migrating to Ginboot](docs/migration.md) · [ginboot.com/docs/5-migration](https://ginboot.com/docs/5-migration) |
+| From an existing Go app | [ginboot.com/docs/5-migration/from-go](https://ginboot.com/docs/5-migration/from-go) |
+| From another language | [ginboot.com/docs/5-migration/from-other-languages](https://ginboot.com/docs/5-migration/from-other-languages) |
+| For AI coding agents | [ginboot.com/docs/5-migration/agent-playbook](https://ginboot.com/docs/5-migration/agent-playbook) |
+
+Using an AI coding agent? Point it at
+[`AGENTS.md`](AGENTS.md), [ginboot.com/llms.txt](https://ginboot.com/llms.txt) or
+[ginboot.com/llms-full.txt](https://ginboot.com/llms-full.txt) — the whole documentation
+in one request.
+
 ## Documentation
 
 For more detailed information on Ginboot's features and usage, refer to the following documentation:
@@ -98,6 +121,7 @@ For more detailed information on Ginboot's features and usage, refer to the foll
 *   [Testing](docs/testing.md)
 *   [Caching Support](docs/caching.md)
 *   [Telemetry & Observability](docs/telemetry.md)
+*   [Migrating to Ginboot](docs/migration.md)
 
 ## Contributing
 Contributions are welcome! Please read our contributing guidelines for more details.

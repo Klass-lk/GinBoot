@@ -1,0 +1,561 @@
+---
+title: "Migrating an Existing Go App"
+description: "Move a running Go API onto Ginboot without a rewrite — from Gin, net/http, Echo, Fiber, Chi or gorilla/mux — one endpoint group at a time."
+icon: GitMerge
+---
+
+This guide moves an existing Go HTTP service onto Ginboot **incrementally**. The
+application builds, starts and serves traffic after every step. There is no branch that
+is broken for three weeks.
+
+## Why this can be incremental
+
+Ginboot is a layer over [Gin](https://github.com/gin-gonic/gin), and it exposes the
+engine rather than hiding it. Two properties make a gradual migration possible:
+
+1. **`server.Engine()` returns the real `*gin.Engine`.** Anything you can do with Gin,
+   you can still do — including registering your entire existing route tree in one line.
+2. **Ginboot route groups accept Gin's own handler signature.** A
+   `func(c *gin.Context)` handler registered through `group.GET` is passed through
+   untouched, so a controller can hold converted and unconverted handlers at the same
+   time.
+
+<Callout type="info" title="If you are not on Gin">
+  Everything below still applies, but handlers that take an `echo.Context`, a
+  `*fiber.Ctx` or a `http.ResponseWriter`/`*http.Request` pair cannot be passed through —
+  those are different types. See [Coming from another router](#coming-from-another-router)
+  for what changes and what carries over.
+</Callout>
+
+---
+
+## Step 1 — Install Ginboot and take over the entrypoint
+
+```bash
+go get -u github.com/klass-lk/ginboot
+```
+
+Replace the code that builds and runs your router. Keep everything else.
+
+<Tabs items={['From Gin', 'From net/http', 'From Echo or Fiber']}>
+
+<Tab value="From Gin">
+
+```go
+// Before
+func main() {
+	r := gin.Default()
+	r.Use(middleware.RequestID())
+	registerRoutes(r) // your existing route tree
+	log.Fatal(r.Run(":8080"))
+}
+
+// After
+func main() {
+	server := ginboot.New()
+
+	// Server-wide middleware goes on the engine.
+	server.Engine().Use(middleware.RequestID())
+
+	// Every existing route, registered exactly as before.
+	registerRoutes(server.Engine())
+
+	log.Fatal(server.Start(8080))
+}
+```
+
+At this point nothing has changed for your clients, and you have gained automatic
+`.env` and `ginboot.yml` loading, `/healthz`, and the ability to add controllers
+alongside the old routes.
+
+</Tab>
+
+<Tab value="From net/http">
+
+Your existing `http.Handler` — a `*http.ServeMux`, a `chi.Mux`, a `gorilla/mux` router —
+can be mounted on the Gin engine while you convert routes off it:
+
+```go
+func main() {
+	server := ginboot.New()
+
+	legacy := buildLegacyMux() // returns http.Handler
+
+	// Everything not yet converted falls through to the old handler.
+	server.Engine().NoRoute(gin.WrapH(legacy))
+
+	log.Fatal(server.Start(8080))
+}
+```
+
+`gin.WrapH` and `gin.WrapF` also work per route, if you would rather mount specific
+prefixes than use `NoRoute`:
+
+```go
+server.Engine().Any("/legacy/*path", gin.WrapH(legacy))
+```
+
+</Tab>
+
+<Tab value="From Echo or Fiber">
+
+Echo is an `http.Handler`, so it can be mounted the same way as `net/http` while you
+convert:
+
+```go
+server.Engine().NoRoute(gin.WrapH(echoInstance))
+```
+
+Fiber is built on fasthttp and is **not** an `http.Handler`. There is no mounting trick:
+run the Fiber app on a second port behind your load balancer and move paths across one
+at a time, or convert all routes in one change if the service is small.
+
+</Tab>
+
+</Tabs>
+
+<Callout type="warn" title="There is no server.Use">
+  Server-wide middleware is applied with `server.Engine().Use(...)`. Middleware applies
+  only to routes registered *after* it, so put these calls before your controllers.
+</Callout>
+
+**Verify before moving on:**
+
+```bash
+go build ./... && go run . &
+curl -s localhost:8080/healthz          # {"status":"UP",...}
+curl -s localhost:8080/your/old/route   # unchanged response
+```
+
+---
+
+## Step 2 — Move configuration into `ginboot.yml`
+
+`ginboot.New()` already loaded `.env`, `.env.local` and `.env.development`, then the
+first of `ginboot.yml`, `application.yml`, `ginboot.yaml` or `application.yaml` that it
+found. Create the file with the variable names you already deploy with:
+
+```yaml
+ginboot:
+  server:
+    port: ${PORT:8080}
+    base-path: /api/v1
+    env: ${ENV:development}
+
+  db:
+    driver: postgres
+    url: ${DATABASE_URL:postgres://postgres:secret@localhost:5432/app_db}
+```
+
+Then read it back instead of reaching for `os.Getenv` in scattered places:
+
+```go
+server := ginboot.New()
+cfg := server.Config()
+
+server.SetBasePath(cfg.Ginboot.Server.BasePath)
+log.Fatal(server.Start(cfg.Ginboot.Server.Port))
+```
+
+Values already present in the real environment always win over the defaults in the file,
+so a platform-injected production secret is never overridden by a committed fallback.
+See [Configuration](/docs/2-core-concepts/configuration) for the full key list.
+
+<Callout type="warn" title="Watch the base path">
+  `SetBasePath("/api/v1")` prefixes every route registered through Ginboot. If your
+  existing route strings already contain `/api/v1`, you will end up with
+  `/api/v1/api/v1/...`. Strip the prefix from the route strings, or leave the base path
+  empty until the conversion is done.
+</Callout>
+
+---
+
+## Step 3 — Convert endpoints into controllers
+
+This is the bulk of the work, done one resource at a time.
+
+### The shape of a controller
+
+A controller is any type with a `Register` method. Ginboot recommends registering routes
+**only** inside controllers — not directly on the engine — once the migration is complete.
+
+```go
+type UserController struct {
+	users *service.UserService
+}
+
+func NewUserController(users *service.UserService) *UserController {
+	return &UserController{users: users}
+}
+
+func (c *UserController) Register(group *ginboot.ControllerGroup) {
+	group.GET("", c.List)
+	group.GET("/:id", c.Get)
+
+	protected := group.Group("", middleware.Auth())
+	{
+		protected.POST("", c.Create)
+		protected.PUT("/:id", c.Update)
+		protected.DELETE("/:id", c.Delete)
+	}
+}
+```
+
+```go
+server.RegisterController("/users", userController) // → /api/v1/users/...
+```
+
+### Translating handlers
+
+A Ginboot handler takes what it needs and returns `(value, error)`. The framework binds
+the request, serialises the response and maps the error.
+
+| Your handler today | Ginboot signature |
+| :--- | :--- |
+| Reads path/query params, no body | `func(ctx *ginboot.Context) (T, error)` |
+| Binds a JSON body, nothing else | `func(req R) (T, error)` |
+| Binds a body *and* needs params or auth | `func(ctx *ginboot.Context, req R) (T, error)` |
+| Takes no input at all | `func() (T, error)` |
+| Not converted yet | `func(c *gin.Context)` — accepted unchanged |
+
+<Tabs items={['Read', 'Write', 'Paginated']}>
+
+<Tab value="Read">
+
+```go
+// Before
+func (c *UserController) Get(ctx *gin.Context) {
+	user, err := c.users.FindById(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	ctx.JSON(http.StatusOK, user)
+}
+
+// After
+func (c *UserController) Get(ctx *ginboot.Context) (model.User, error) {
+	return c.users.FindById(ctx.Param("id"))
+}
+```
+
+The 404 does not disappear — it moves into the service, which returns
+`ErrUserNotFound.New(id)`. See [Step 4](#step-4--convert-errors-to-apierror).
+
+</Tab>
+
+<Tab value="Write">
+
+```go
+// Before
+func (c *UserController) Create(ctx *gin.Context) {
+	var req CreateUserRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	user, err := c.users.Create(req)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusCreated, user)
+}
+
+// After
+func (c *UserController) Create(req CreateUserRequest) (model.User, error) {
+	return c.users.Create(req)
+}
+```
+
+Binding, validation and the 400 on malformed input are handled before your function is
+called. Note the status change — see the callout on [status codes](#success-is-always-200)
+if `201` is part of your contract.
+
+</Tab>
+
+<Tab value="Paginated">
+
+```go
+// Before: parsing page/size/sort by hand
+page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
+size, _ := strconv.Atoi(ctx.DefaultQuery("size", "10"))
+
+// After
+func (c *UserController) List(ctx *ginboot.Context) (ginboot.PageResponse[model.User], error) {
+	return c.users.List(ctx.GetPageRequest())
+}
+```
+
+`GetPageRequest` reads `page` (default `1`), `size` (default `10`) and `sort` (default
+`_id,asc`, where `field,desc` maps to direction `-1`) from the query string.
+
+</Tab>
+
+</Tabs>
+
+### Success is always 200
+
+On the success path Ginboot writes `200 OK` — a `string` return as `text/plain`, anything
+else as JSON, and `nil` as a bare `200`. If your contract has `201 Created` or
+`204 No Content`, write the response yourself and return `nil, nil`. Ginboot checks
+whether the response has already been written and leaves it alone:
+
+```go
+func (c *UserController) Create(ctx *ginboot.Context, req CreateUserRequest) (any, error) {
+	user, err := c.users.Create(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx.JSON(http.StatusCreated, user) // written here, not overridden
+	return nil, nil
+}
+```
+
+For an endpoint that genuinely returns nothing, return `ginboot.EmptyResponse{}`.
+
+### Middleware and the auth context
+
+Gin middleware keeps working unchanged, at three levels:
+
+```go
+server.Engine().Use(middleware.RequestID())            // server-wide
+protected := group.Group("/admin", middleware.Auth())  // group
+group.GET("/users", c.List, middleware.Cache())        // single route
+```
+
+`ctx.GetAuthContext()` reads two specific keys out of the Gin context, so your existing
+auth middleware needs to set exactly these:
+
+```go
+c.Set("user_id", claims.Subject)
+c.Set("role", claims.Role)
+```
+
+With those set, handlers get a typed context and a `401` is raised automatically when
+either key is missing:
+
+```go
+auth, err := ctx.GetAuthContext()
+if err != nil {
+	return nil, err
+}
+_ = auth.UserID
+_ = auth.Roles
+```
+
+---
+
+## Step 4 — Convert errors to `ApiError`
+
+Stop formatting error responses in handlers. Declare the API's errors once, return them
+from services, and let the framework map them:
+
+```go
+var (
+	ErrUserNotFound = ginboot.NewApiError(404, "User with ID %s not found")
+	ErrEmailTaken   = ginboot.NewApiError(409, "Email %s is already registered")
+)
+
+func (s *UserService) FindById(id string) (model.User, error) {
+	user, err := s.repo.FindById(id)
+	if err != nil {
+		return model.User{}, ErrUserNotFound.New(id)
+	}
+	return user, nil
+}
+```
+
+The client sees the status code carried by the error and a consistent body:
+
+```json
+{ "error_code": "404", "message": "User with ID 42 not found" }
+```
+
+Any error that is *not* an `ApiError` becomes a `500`, so an unmapped internal failure
+can never leak as a `200`. Errors returned from `ctx.CallService` are, by default,
+reported to your caller as `502 UPSTREAM_ERROR` rather than forwarded — see
+[Inter-Service Communication](/docs/3-features/service-communication).
+
+<Callout type="warn" title="Keep the codes you already publish">
+  Clients depend on your current status codes. Map each existing error response to an
+  `ApiError` with the *same* code before you delete the old handler branch, and diff a
+  few real error responses against the old service.
+</Callout>
+
+---
+
+## Step 5 — Move the data access layer
+
+Ginboot's repositories live in their own Go modules, so you only pull in the driver you
+actually use:
+
+| Backend | Module | Constructor |
+| :--- | :--- | :--- |
+| MongoDB | `github.com/klass-lk/ginboot/db/mongo` | `mongo.NewMongoRepository[T](db, "collection")` |
+| SQL (GORM) | `github.com/klass-lk/ginboot/db/sql` | `sql.NewSQLRepository[T](db)` |
+| DynamoDB | `github.com/klass-lk/ginboot/db/dynamodb` | `dynamodb.NewDynamoDBRepository[T](client)` |
+| In-memory | `github.com/klass-lk/ginboot/db/inmemory` | `inmemory.NewInMemoryRepository[T]()` |
+
+```bash
+go get github.com/klass-lk/ginboot/db/mongo
+```
+
+Embed the repository to keep your custom queries next to the generated CRUD:
+
+```go
+import dbMongo "github.com/klass-lk/ginboot/db/mongo"
+
+type UserRepository struct {
+	*dbMongo.MongoRepository[model.User]
+}
+
+func NewUserRepository(db *mongo.Database) *UserRepository {
+	return &UserRepository{
+		MongoRepository: dbMongo.NewMongoRepository[model.User](db, "users"),
+	}
+}
+
+// Your existing hand-written query, kept as-is.
+func (r *UserRepository) FindActiveByTenant(tenantID string) ([]model.User, error) {
+	return r.FindByFilters(map[string]interface{}{"tenant_id": tenantID, "status": "active"})
+}
+```
+
+Your models need tags for the backend (`bson`, `db`/GORM, `dynamodbav`) and, where the
+primary key is not obvious, a `ginboot:"_id"` or `ginboot:"id"` tag. SQL and DynamoDB
+models must implement `GetTableName() string`. The full interface —
+`FindById`, `FindBy`, `FindByFilters`, `FindAllPaginated`, `CountBy`, `ExistsBy` and the
+rest — is in [Database Support](/docs/3-features/database).
+
+<Callout type="info" title="Schema migrations stay yours">
+  Ginboot does not run schema migrations. Keep `golang-migrate`, Atlas, Flyway or
+  whatever you use today — nothing about it changes.
+</Callout>
+
+If swapping the data layer and the routing layer at once feels risky, keep your existing
+repository type and give it the methods your controllers call. The repository interface
+is a convenience, not a requirement.
+
+---
+
+## Step 6 — Move background work
+
+| What you have | Ginboot equivalent |
+| :--- | :--- |
+| A goroutine with a `time.Ticker` | `server.RegisterWorker("name", 5*time.Minute, fn)` |
+| A `robfig/cron` job | A type implementing `Worker` plus `Cron() string`, registered with `RegisterWorkerStruct` |
+| An SQS/queue poller | `server.RegisterConsumer(ginboot.NewQueueConsumer("sms", ginboot.Queue("sms"), fn))` |
+
+```go
+server.RegisterWorker("cleanup", time.Hour, func(ctx context.Context) error {
+	return svc.PurgeExpiredSessions(ctx)
+})
+```
+
+Workers registered this way run on a server *and* on AWS Lambda, which a hand-rolled
+goroutine does not. See [Background Workers](/docs/3-features/workers) and
+[Event Triggers](/docs/3-features/event-triggers).
+
+---
+
+## Step 7 — Turn on the platform features
+
+Each of these is independent and additive:
+
+- **Telemetry** — `go get github.com/klass-lk/ginboot/telemetry`, import it blank, and set
+  `telemetry.enabled: true`. Replace `log.Printf` with `ctx.Logger().Info(...)` to get
+  trace-correlated logs. See [Telemetry](/docs/3-features/telemetry).
+- **OpenAPI** — the spec is generated from your controllers' types. Export it with
+  `GINBOOT_EXPORT_SWAGGER=openapi.json go run .`, and diff it against the contract your
+  clients hold. See [OpenAPI & Swagger](/docs/3-features/openapi-swagger).
+- **Caching** — response caching with tag invalidation over DynamoDB, SQL or MongoDB. See
+  [Caching](/docs/3-features/caching).
+- **AWS Lambda** — the same controllers behind API Gateway:
+
+  ```go
+  import lambdarunner "github.com/klass-lk/ginboot/runtime/lambda"
+
+  if os.Getenv("LAMBDA_TASK_ROOT") != "" {
+  	server.SetRunner(lambdarunner.NewRunnerFor(server))
+  }
+  ```
+
+  `NewRunnerFor` wires the scheduler and the consumers too, which the older
+  `NewRunner()` does not. See [AWS Lambda Support](/docs/3-features/aws-lambda).
+
+---
+
+## Coming from another router
+
+The phases are the same. What differs is that handlers must be rewritten rather than
+passed through, because the context type is different.
+
+| Framework | Mountable during migration | Handler conversion |
+| :--- | :--- | :--- |
+| **Gin** | Yes — same engine | Optional, and per route |
+| **net/http**, **Chi**, **gorilla/mux** | Yes, via `gin.WrapH` | `(w, r)` → `(ctx *ginboot.Context) (T, error)`; `r.URL.Query().Get` → `ctx.Query`; `mux.Vars(r)["id"]` → `ctx.Param("id")` |
+| **Echo** | Yes, via `gin.WrapH` | `c.Bind(&req)` → a request parameter; `c.JSON(200, v)` → `return v, nil`; `echo.NewHTTPError(404, msg)` → `ginboot.NewApiError(404, msg)` |
+| **Fiber** | No — fasthttp, not `net/http` | As above, plus run both processes side by side during the cutover |
+
+What carries over untouched in every case: your services, domain models, validation
+rules, SQL, tests for business logic, and your deployment pipeline.
+
+---
+
+## Migration checklist
+
+Work down this list per endpoint group; it is the same list the
+[agent playbook](/docs/5-migration/agent-playbook) uses.
+
+- [ ] `ginboot.New()` owns the entrypoint and the app starts.
+- [ ] Settings come from `ginboot.yml` / environment via `server.Config()`.
+- [ ] Each resource has a controller registered with `server.RegisterController`.
+- [ ] Handlers return `(T, error)` and do not write responses — except where a non-200
+      status is deliberate.
+- [ ] Request structs carry `json` and `binding` tags; no manual `ShouldBindJSON` in
+      handlers.
+- [ ] Every error path returns a `ginboot.ApiError` with the original status code.
+- [ ] Auth middleware sets `user_id` and `role`; handlers use `ctx.GetAuthContext()`.
+- [ ] Repositories replace hand-written CRUD, or the existing ones are wired in.
+- [ ] Background jobs are registered workers or consumers.
+- [ ] The exported OpenAPI spec matches the published contract.
+- [ ] The old router, binding, error-formatting and config code is deleted.
+
+## Common pitfalls
+
+| Symptom | Cause | Fix |
+| :--- | :--- | :--- |
+| `panic: handler must return (response, error)` | A converted handler returns one value or three | Return exactly two values, the second an `error` |
+| `panic: first argument must be *Context when using two arguments` | Two-argument handler with the request first | Order is always `(ctx *ginboot.Context, req R)` |
+| `panic: handler must have 0-2 arguments` | Extra parameters on the handler | Read anything else off `ctx` |
+| Routes answer at `/api/v1/api/v1/...` | Base path set *and* baked into route strings | Remove the prefix from the route strings |
+| `Headers were already written` in the log | Handler wrote a response **and** returned a value | Return `nil, nil` after writing yourself |
+| Every response is `200`, contract says `201` | Ginboot's success default | Write the status explicitly, return `nil, nil` |
+| `401` on every protected route | Middleware does not set `user_id` and `role` | Set both keys with `c.Set` |
+| Middleware never runs | Registered after the routes | `server.Engine().Use(...)` before registering controllers |
+
+## Next steps
+
+<Cards>
+  <Card
+    title="Playbook for coding agents"
+    href="/docs/5-migration/agent-playbook"
+    description="The same migration as a deterministic, verifiable procedure."
+  />
+  <Card
+    title="Routing"
+    href="/docs/2-core-concepts/routing"
+    description="Controllers, groups and the four handler signatures in full."
+  />
+  <Card
+    title="Database Support"
+    href="/docs/3-features/database"
+    description="The repository interface, per-backend setup and custom queries."
+  />
+  <Card
+    title="Testing & BDD"
+    href="/docs/4-advanced/testing"
+    description="Lock the contract down with Gherkin tests before and after the move."
+  />
+</Cards>

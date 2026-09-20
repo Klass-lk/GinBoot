@@ -1,0 +1,659 @@
+---
+title: "Porting an API from Another Language"
+description: "Port a REST API from Node.js, Python, Java, .NET, Ruby or PHP to Ginboot — contract first, then a path-by-path cutover with no big-bang rewrite."
+icon: Languages
+---
+
+This guide is for replacing an API written in another language with a Ginboot service.
+The old service keeps serving traffic the whole time; requests move across one path at a
+time, and any path can be moved back.
+
+If your API is already in Go, use
+[Migrating an Existing Go App](/docs/5-migration/from-go) instead — that migration is
+in-place and does not need a cutover.
+
+## The principle: the contract is the specification
+
+You are not porting code. You are re-implementing a **contract** — a set of paths,
+request shapes, response shapes and status codes — in a different language, and proving
+the new implementation answers identically. Everything below follows from that.
+
+<Callout type="warn" title="Do not translate line by line">
+  A handler translated statement by statement from Express or Django carries that
+  framework's idioms into Go, and you end up maintaining a foreign design in an
+  unfamiliar language. Port the *behaviour* of each endpoint: its inputs, its rules, its
+  outputs, its failure modes.
+</Callout>
+
+---
+
+## Concept mapping
+
+The framework concepts map closely enough that most teams can work from this table alone.
+
+| Concept | Express / NestJS | FastAPI / Django | Spring Boot | Ginboot |
+| :--- | :--- | :--- | :--- | :--- |
+| App instance | `express()` / `NestFactory` | `FastAPI()` / WSGI app | `@SpringBootApplication` | `ginboot.New()` |
+| Route grouping | `Router` / `@Controller` | `APIRouter` / `urls.py` | `@RestController` | A type with `Register(group *ginboot.ControllerGroup)` |
+| Mounting a group | `app.use('/users', r)` | `include_router(prefix=)` | `@RequestMapping("/users")` | `server.RegisterController("/users", c)` |
+| Handler | `(req, res) => {}` | `async def handler(...)` | `@GetMapping` method | `func(ctx, req) (T, error)` |
+| Request validation | Joi / `class-validator` | Pydantic / serializers | Bean Validation | `binding` struct tags |
+| Dependency injection | Nest providers | `Depends()` | `@Autowired` | Constructor parameters, wired in `main.go` |
+| Data access | Prisma / TypeORM | SQLAlchemy / ORM | Spring Data `JpaRepository` | `GenericRepository[T]` |
+| Error → status | `next(err)` + handler | `HTTPException` | `@ResponseStatus` / `@ControllerAdvice` | `return ginboot.NewApiError(404, "...")` |
+| Config | `.env` + `process.env` | `settings.py` / `BaseSettings` | `application.yml` | `ginboot.yml` + `.env` |
+| Middleware | `app.use(fn)` | Middleware classes | Filters / interceptors | `gin.HandlerFunc` |
+| Auth context | `req.user` | `request.user` | `SecurityContextHolder` | `ctx.GetAuthContext()` |
+| Background jobs | BullMQ / node-cron | Celery / APScheduler | `@Scheduled` | `RegisterWorker` / `RegisterConsumer` |
+| Queue consumer | BullMQ worker | Celery task | `@SqsListener` | `ginboot.NewQueueConsumer` |
+| API docs | Swagger decorators | Automatic OpenAPI | springdoc | Generated from controller types |
+| Logging | Winston / Pino | `logging` | SLF4J | `ctx.Logger()` |
+
+Rails and Laravel map onto the same rows: a controller is a controller, `strong parameters`
+or a `FormRequest` is a request struct with `binding` tags, ActiveRecord or Eloquent is a
+repository, `rescue_from`/`abort(404)` is an `ApiError`, and Sidekiq or Horizon jobs are
+workers and consumers.
+
+---
+
+## The porting procedure
+
+<Steps>
+
+<Step>
+
+### Capture the contract you must honour
+
+Before writing Go, produce a machine-readable description of the existing API. In order
+of preference:
+
+1. An OpenAPI/Swagger document the old service already generates.
+2. Recorded traffic — a day of real requests and responses from the access log or proxy.
+3. The route table plus the tests, read by hand.
+
+You need, for every endpoint: method, path, path/query parameters, request body fields
+with types and required-ness, response body shape, every status code it can return, and
+what authentication it requires.
+
+**Checkpoint:** a list of endpoints that you and the API's consumers agree is complete.
+
+</Step>
+
+<Step>
+
+### Stand up the skeleton
+
+```bash
+go get -u github.com/klass-lk/ginboot
+```
+
+Use [start.ginboot.com](https://start.ginboot.com) to scaffold, or create the layout by
+hand:
+
+<Files>
+  <Folder name="cmd" defaultOpen>
+    <File name="main.go" />
+  </Folder>
+  <Folder name="internal" defaultOpen>
+    <Folder name="controller" />
+    <Folder name="service" />
+    <Folder name="repository" />
+    <Folder name="model" />
+    <Folder name="middleware" />
+  </Folder>
+  <File name="ginboot.yml" />
+  <File name=".env" />
+</Files>
+
+```go
+package main
+
+import (
+	"log"
+
+	"github.com/klass-lk/ginboot"
+)
+
+func main() {
+	server := ginboot.New()
+	cfg := server.Config()
+	server.SetBasePath(cfg.Ginboot.Server.BasePath)
+
+	// Controllers are registered here as you port them.
+
+	log.Fatal(server.Start(cfg.Ginboot.Server.Port))
+}
+```
+
+**Checkpoint:** `curl localhost:8080/healthz` returns `{"status":"UP",...}`.
+
+</Step>
+
+<Step>
+
+### Port the models
+
+Translate each entity once, with the tags the target backend needs. Go's zero values are
+the trap here: a missing JSON field and an explicitly-sent `0` or `""` are
+indistinguishable unless you use a pointer.
+
+```go
+type User struct {
+	ID        string    `json:"id"        bson:"_id" ginboot:"_id"`
+	Email     string    `json:"email"     bson:"email"`
+	Name      string    `json:"name"      bson:"name"`
+	Age       *int      `json:"age"       bson:"age"` // nullable: pointer
+	CreatedAt time.Time `json:"createdAt" bson:"created_at"`
+}
+```
+
+| Source type | Go type |
+| :--- | :--- |
+| `string` | `string` |
+| `number` / `int` / `Integer` | `int`, `int64` |
+| `float` / `Double` / `Decimal` | `float64` — for money, prefer integer minor units |
+| `boolean` | `bool` |
+| `Date` / `datetime` / `Instant` | `time.Time` |
+| nullable / `Optional<T>` | `*T` |
+| `array` / `List<T>` | `[]T` |
+| `object` / `Map` / `dict` | a struct, or `map[string]interface{}` |
+| `enum` | a `string` type with constants |
+| `UUID` | `string`, or `uuid.UUID` |
+
+<Callout type="warn" title="Field names are part of the contract">
+  Go exports fields with capitals; your JSON is probably `camelCase` or `snake_case`. The
+  `json` tag decides what clients see, and a missing tag silently renames a field in your
+  public API. Tag every field.
+</Callout>
+
+**Checkpoint:** a round-trip test that unmarshals a recorded response body from the old
+API into your struct, marshals it back, and compares.
+
+</Step>
+
+<Step>
+
+### Port the business logic into services
+
+Services hold the rules and must not import the web framework. They take a
+`context.Context` where the old code took a request or session, and they return domain
+errors.
+
+```go
+type UserService struct {
+	repo *repository.UserRepository
+}
+
+func (s *UserService) Register(req model.RegisterRequest) (model.User, error) {
+	exists, err := s.repo.ExistsBy("email", req.Email)
+	if err != nil {
+		return model.User{}, err
+	}
+	if exists {
+		return model.User{}, ErrEmailTaken.New(req.Email)
+	}
+	// ... the same rules the old service had ...
+	return user, s.repo.Save(user)
+}
+```
+
+This is the step where a port usually goes wrong: hidden behaviour. Implicit ORM
+callbacks, request-scoped globals, Django signals, Rails `before_save` hooks and Spring
+aspects do not exist in Go. Every one of them has to become an explicit call, and finding
+them means reading the old code rather than the old routes.
+
+**Checkpoint:** service-level unit tests, ported from the old test suite where one exists.
+
+</Step>
+
+<Step>
+
+### Port the data layer
+
+Pick the repository module for your backend and point it at the **same database** the old
+service uses, so the two implementations can run side by side:
+
+```bash
+go get github.com/klass-lk/ginboot/db/mongo   # or /db/sql, /db/dynamodb
+```
+
+```go
+import dbMongo "github.com/klass-lk/ginboot/db/mongo"
+
+type UserRepository struct {
+	*dbMongo.MongoRepository[model.User]
+}
+
+func NewUserRepository(db *mongo.Database) *UserRepository {
+	return &UserRepository{
+		MongoRepository: dbMongo.NewMongoRepository[model.User](db, "users"),
+	}
+}
+```
+
+| ORM idiom | Ginboot repository |
+| :--- | :--- |
+| `findById` / `get(pk=)` / `findOne` | `FindById(id)` |
+| `findAll` / `.all()` | `FindAll()` |
+| `where({status})` / `filter(status=)` | `FindByFilters(map[string]interface{}{...})` |
+| `count()` | `CountBy` / `CountByFilters` |
+| `exists()` | `ExistsBy` / `ExistsByFilters` |
+| `save` / `create` / `upsert` | `Save`, `SaveAll`, `SaveOrUpdate` |
+| `update` | `Update` |
+| `delete` / `destroy` | `Delete(id)` |
+| `paginate(page, per_page)` | `FindAllPaginated(ginboot.PageRequest{...})` |
+| A hand-written query | A method on your embedded repository type |
+
+Two things do not come across, and pretending otherwise causes production surprises:
+
+- **Lazy loading and eager relations.** There is no `include`, `select_related` or
+  `@OneToMany` fetch. Related data is a second call, or a field you store denormalised.
+- **Schema migrations.** Ginboot does not manage schema. Keep the migration tool the old
+  stack used, or adopt one — but the schema stays owned by exactly one system.
+
+**Checkpoint:** the repository reads real rows written by the old service and produces
+identical values.
+
+</Step>
+
+<Step>
+
+### Port the handlers
+
+Handlers should be thin: bind, delegate, return. Ginboot binds and validates the request
+before your function runs.
+
+<Tabs items={['Express', 'FastAPI', 'Spring Boot', 'NestJS']}>
+
+<Tab value="Express">
+
+```javascript
+// Before
+router.post('/users', async (req, res) => {
+  const { email, name } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const user = await userService.register({ email, name });
+    res.status(201).json(user);
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+});
+```
+
+```go
+// After
+type RegisterRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	Name  string `json:"name"  binding:"required"`
+}
+
+func (c *UserController) Register(group *ginboot.ControllerGroup) {
+	group.POST("", c.Create)
+}
+
+func (c *UserController) Create(req RegisterRequest) (model.User, error) {
+	return c.users.Register(req)
+}
+```
+
+The `400` for a missing field comes from the `binding` tag. The `409` comes from the
+service returning `ErrEmailTaken`.
+
+</Tab>
+
+<Tab value="FastAPI">
+
+```python
+# Before
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    name: str
+
+@router.post("/users", status_code=201)
+async def register(req: RegisterRequest):
+    if await users.exists(req.email):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    return await users.register(req)
+```
+
+```go
+// After
+type RegisterRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	Name  string `json:"name"  binding:"required"`
+}
+
+var ErrEmailTaken = ginboot.NewApiError(409, "Email %s is already registered")
+
+func (c *UserController) Create(req RegisterRequest) (model.User, error) {
+	return c.users.Register(req) // returns ErrEmailTaken.New(email)
+}
+```
+
+Pydantic's field types become `binding` tags: `EmailStr` → `binding:"email"`,
+`conint(ge=0)` → `binding:"gte=0"`, `Optional[T]` → `*T` with no `required`.
+
+</Tab>
+
+<Tab value="Spring Boot">
+
+```java
+// Before
+@RestController
+@RequestMapping("/users")
+public class UserController {
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public User register(@Valid @RequestBody RegisterRequest req) {
+        return userService.register(req);
+    }
+
+    @GetMapping("/{id}")
+    public User get(@PathVariable String id) {
+        return userService.findById(id);
+    }
+}
+```
+
+```go
+// After
+func (c *UserController) Register(group *ginboot.ControllerGroup) {
+	group.POST("", c.Create)
+	group.GET("/:id", c.Get)
+}
+
+func (c *UserController) Create(req RegisterRequest) (model.User, error) {
+	return c.users.Register(req)
+}
+
+func (c *UserController) Get(ctx *ginboot.Context) (model.User, error) {
+	return c.users.FindById(ctx.Param("id"))
+}
+```
+
+`@Valid` becomes `binding` tags, `@PathVariable` becomes `ctx.Param`, and
+`@ControllerAdvice` becomes `ApiError` values returned from services. There is no
+component scanning — controllers are constructed and registered explicitly in `main.go`,
+which is the whole of the dependency injection story.
+
+</Tab>
+
+<Tab value="NestJS">
+
+```typescript
+// Before
+@Controller('users')
+export class UsersController {
+  constructor(private readonly users: UsersService) {}
+
+  @Post()
+  @HttpCode(201)
+  register(@Body() dto: RegisterDto): Promise<User> {
+    return this.users.register(dto);
+  }
+}
+```
+
+```go
+// After
+type UserController struct {
+	users *service.UserService
+}
+
+func NewUserController(users *service.UserService) *UserController {
+	return &UserController{users: users}
+}
+
+func (c *UserController) Register(group *ginboot.ControllerGroup) {
+	group.POST("", c.Create)
+}
+
+func (c *UserController) Create(req RegisterRequest) (model.User, error) {
+	return c.users.Register(req)
+}
+```
+
+Nest's module graph becomes plain constructor calls in `main.go`. Guards become
+`gin.HandlerFunc` middleware; interceptors become middleware or telemetry.
+
+</Tab>
+
+</Tabs>
+
+<Callout type="warn" title="Status codes need attention">
+  Ginboot answers `200` on every success path. If the old API returned `201 Created` or
+  `204 No Content`, write it explicitly and return `nil, nil` — Ginboot will not override
+  a response that has already been written:
+
+  ```go
+  ctx.JSON(http.StatusCreated, user)
+  return nil, nil
+  ```
+</Callout>
+
+**Checkpoint:** for each ported endpoint, the same request returns the same body and
+status as the old service.
+
+</Step>
+
+<Step>
+
+### Port validation and errors
+
+`binding` tags come from [go-playground/validator](https://github.com/go-playground/validator);
+a failure becomes a `400` before your handler runs.
+
+| Rule | Pydantic / class-validator / Bean Validation | Ginboot tag |
+| :--- | :--- | :--- |
+| Required | `Field(...)` / `@IsNotEmpty` / `@NotNull` | `binding:"required"` |
+| Email | `EmailStr` / `@IsEmail` | `binding:"email"` |
+| Length | `min_length` / `@Length` / `@Size` | `binding:"min=3,max=64"` |
+| Numeric range | `ge` / `@Min` / `@Max` | `binding:"gte=0,lte=100"` |
+| One of | `Literal[...]` / `@IsIn` | `binding:"oneof=draft published"` |
+| URL | `HttpUrl` / `@IsUrl` | `binding:"url"` |
+| Optional | `Optional[T]` / `@IsOptional` | pointer type, no `required` |
+
+Declare the API's error vocabulary once, and give each error the status code the old API
+used:
+
+```go
+var (
+	ErrUserNotFound = ginboot.NewApiError(404, "User with ID %s not found")
+	ErrEmailTaken   = ginboot.NewApiError(409, "Email %s is already registered")
+	ErrForbidden    = ginboot.NewApiError(403, "Operation not permitted")
+)
+```
+
+Every response body then has the same shape, and an unmapped internal error becomes a
+`500` rather than leaking:
+
+```json
+{ "error_code": "404", "message": "User with ID 42 not found" }
+```
+
+<Callout type="info" title="If the old error body had a different shape">
+  Clients parse error bodies. If the old API returned `{"error": "..."}` or
+  `{"detail": "..."}`, either keep the old shape with a middleware that rewrites the
+  response, or version the change and tell the clients. Do not discover it at cutover.
+</Callout>
+
+</Step>
+
+<Step>
+
+### Port authentication
+
+Authentication is middleware. Whatever verifies the token must set two keys, because
+`ctx.GetAuthContext()` reads exactly these:
+
+```go
+func Auth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		raw := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+
+		token, err := ginboot.ParseAccessToken(raw)
+		if err != nil {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		claims, err := ginboot.ExtractClaims(token)
+		if err != nil || ginboot.IsExpired(claims) {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		c.Set("user_id", ginboot.ExtractUserId(claims))
+		c.Set("role", ginboot.ExtractRole(claims))
+		c.Next()
+	}
+}
+```
+
+```go
+protected := group.Group("", middleware.Auth())
+protected.GET("/me", c.Me)
+```
+
+Sessions are the one case that needs a decision rather than a translation. If the old API
+authenticated with server-side sessions (Django, Rails, Laravel, Spring Session), you are
+choosing between sharing the session store, or issuing JWTs and migrating clients. Decide
+this before the cutover, not during it.
+
+See [Authentication](/docs/3-features/authentication) for JWT helpers and PBKDF2 password
+hashing — including how to keep verifying hashes produced by the old stack.
+
+</Step>
+
+<Step>
+
+### Port scheduled jobs and queue consumers
+
+| Old stack | Ginboot |
+| :--- | :--- |
+| `node-cron`, APScheduler, `@Scheduled`, `whenever` | `server.RegisterWorker(name, interval, fn)`, or a `Worker` with a `Cron()` expression |
+| Celery, Sidekiq, BullMQ, Laravel queues | `server.RegisterConsumer(ginboot.NewQueueConsumer(...))` |
+| A cron entry calling a management command | A worker, so it ships with the service |
+
+```go
+server.RegisterWorker("expire-sessions", time.Hour, func(ctx context.Context) error {
+	return svc.PurgeExpiredSessions(ctx)
+})
+
+server.RegisterConsumer(ginboot.NewQueueConsumer("sms", ginboot.Queue("sms"),
+	func(ctx context.Context, msg model.SMS) error {
+		return smsService.Send(ctx, msg)
+	}))
+```
+
+<Callout type="warn" title="Two systems, one job">
+  While both services run, a scheduled job must run in exactly one of them. Disable it in
+  the old service the moment you enable it in the new one — a nightly billing run that
+  fires twice is a worse outcome than a migration that takes a week longer.
+</Callout>
+
+See [Background Workers](/docs/3-features/workers) and
+[Event Triggers](/docs/3-features/event-triggers).
+
+</Step>
+
+<Step>
+
+### Cut traffic over, path by path
+
+Put both services behind the same proxy or load balancer, and move routes across
+individually:
+
+```text
+            ┌──────────────┐
+  clients → │ proxy / ALB  │
+            └──────┬───────┘
+                   │  /api/v1/users/*   → ginboot service   (ported)
+                   │  /api/v1/orders/*  → ginboot service   (ported)
+                   │  /api/v1/*         → legacy service    (not yet)
+```
+
+A practical order:
+
+1. Read-only endpoints first — a wrong response is recoverable, a wrong write is not.
+2. Low-traffic write endpoints next.
+3. The core write paths last, after the earlier ones have run for a while under real load.
+
+Two techniques are worth the effort on any API that matters:
+
+- **Shadow traffic.** Send a copy of production requests to the new service and diff the
+  responses, without returning them to clients. It finds the field you renamed by
+  accident and the timestamp format you changed.
+- **Contract tests.** Write each endpoint's behaviour once in Gherkin and run it against
+  both services. Ginboot ships Godog step definitions for exactly this — see
+  [Testing & BDD](/docs/4-advanced/testing).
+
+Keep the rollback simple: one proxy rule per path, so reverting is one change.
+
+**Checkpoint:** the old service receives no traffic for a full business cycle — including
+month-end, if that is a thing in your domain — before you delete it.
+
+</Step>
+
+</Steps>
+
+---
+
+## Things that bite when porting to Go
+
+| Coming from | The surprise |
+| :--- | :--- |
+| Any dynamic language | Zero values. A missing `"age"` and `"age": 0` are the same `int`. Use `*int` when the difference matters. |
+| Any dynamic language | JSON field names come from struct tags, not field names. An untagged field is `PascalCase` in the response. |
+| JavaScript | No `undefined` vs `null`. Model it with a pointer, or a wrapper type if you need all three states. |
+| Python, Ruby | No keyword or default arguments. Use an options struct. |
+| Java, C# | No exceptions. Every failure is a returned `error` you must handle or return. |
+| Java, C# | No component scanning or DI container. Wiring is explicit in `main.go`. |
+| Node.js | Handlers run concurrently on real threads. Shared mutable state needs a mutex; there is no single-threaded event loop protecting you. |
+| Django, Rails, Laravel | No ORM lifecycle hooks, no signals, no `before_save`. Make every one explicit. |
+| Rails, Laravel | No convention-based routing. Routes are declared in `Register`. |
+| Everywhere | Decimal money. `float64` is not exact — use integer minor units or a decimal type. |
+| Everywhere | Time zones. `time.Time` carries a location; decide on UTC at the boundary and stay there. |
+
+## Parity checklist
+
+Before the last path moves across:
+
+- [ ] Every endpoint from the captured contract exists, with the same method and path.
+- [ ] Request field names, types and required-ness match, including optional fields.
+- [ ] Response bodies are byte-comparable on the happy path — field names, casing, date
+      format, number precision, null vs omitted.
+- [ ] Every status code the old API could return is reachable in the new one.
+- [ ] Error body shape matches, or clients have been migrated to the new one.
+- [ ] Authentication accepts the tokens or sessions clients already hold.
+- [ ] Pagination parameters and response envelope match.
+- [ ] Rate limits, CORS origins and timeouts match.
+- [ ] Every scheduled job and queue consumer runs in exactly one service.
+- [ ] Logs, metrics and traces reach the same places, and alerts point at the new service.
+- [ ] The exported OpenAPI spec (`GINBOOT_EXPORT_SWAGGER=openapi.json go run .`) matches
+      the contract captured in step 1.
+
+## Next steps
+
+<Cards>
+  <Card
+    title="Playbook for coding agents"
+    href="/docs/5-migration/agent-playbook"
+    description="This port as a deterministic procedure, with verification after each step."
+  />
+  <Card
+    title="Getting Started"
+    href="/docs/1-getting-started"
+    description="Scaffold the skeleton at start.ginboot.com."
+  />
+  <Card
+    title="Routing"
+    href="/docs/2-core-concepts/routing"
+    description="Controllers, groups and handler signatures in full."
+  />
+  <Card
+    title="Testing & BDD"
+    href="/docs/4-advanced/testing"
+    description="Run one Gherkin suite against both the old and the new service."
+  />
+</Cards>

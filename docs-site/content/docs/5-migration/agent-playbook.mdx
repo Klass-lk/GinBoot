@@ -1,0 +1,493 @@
+---
+title: "Migration Playbook for Coding Agents"
+description: "A deterministic, verifiable procedure for an AI coding agent migrating an existing API to Ginboot, with the exact API surface, step-by-step commands and the errors to avoid."
+icon: Bot
+---
+
+This page is written for an autonomous or semi-autonomous coding agent performing a
+migration to Ginboot. It is imperative, verifiable, and states the API surface exactly so
+you do not have to infer it.
+
+Humans migrating by hand should read
+[Migrating an Existing Go App](/docs/5-migration/from-go) or
+[Porting from Another Language](/docs/5-migration/from-other-languages) instead — the
+same work, explained rather than prescribed.
+
+## How to fetch this documentation
+
+| Resource | URL |
+| :--- | :--- |
+| Index of all pages | `https://ginboot.com/llms.txt` |
+| Full documentation, one request | `https://ginboot.com/llms-full.txt` |
+| This page as Markdown | `https://ginboot.com/llms.mdx/docs/5-migration/agent-playbook/content.md` |
+| Any page as Markdown | `https://ginboot.com/llms.mdx/docs/<path>/content.md` |
+| Source repository | `https://github.com/klass-lk/ginboot` |
+| Package documentation | `https://pkg.go.dev/github.com/klass-lk/ginboot` |
+
+Fetch `llms-full.txt` once at the start of a migration and work from it. Verify anything
+you are unsure of against the installed module in `$GOPATH/pkg/mod` or with
+`go doc github.com/klass-lk/ginboot.Server` — not from memory.
+
+---
+
+## Step 0 — Classify the task
+
+Run this decision before writing any code.
+
+```text
+Is the existing API written in Go?
+├─ Yes, using Gin           → PROCEDURE A (in-place, handlers pass through)
+├─ Yes, another router      → PROCEDURE A (in-place, handlers rewritten)
+└─ No (Node/Python/Java/…)  → PROCEDURE B (port + cutover, both services run)
+```
+
+State which procedure you selected, and why, before your first edit. If the repository
+contains more than one service, migrate exactly one per session.
+
+---
+
+## Ground truth: the API surface
+
+Everything in this section is verified against the current source. Prefer it over
+recalled knowledge.
+
+### Module and entrypoint
+
+```go
+import "github.com/klass-lk/ginboot"
+
+server := ginboot.New()      // loads .env*, then ginboot.yml/application.yml
+cfg := server.Config()       // *config.Config
+server.SetBasePath("/api/v1")
+server.RegisterController("/users", userController)
+err := server.Start(8080)    // blocks
+```
+
+`ginboot.New()` loads, in order: `.env`, `.env.local`, `.env.development`, then the first
+of `ginboot.yml`, `application.yml`, `ginboot.yaml`, `application.yaml`. Real environment
+variables always win over file values.
+
+### Every exported method on `*Server`
+
+`BindFileService`, `Config`, `Consumers`, `CustomCORS`, `DefaultCORS`, `Engine`, `Group`,
+`RegisterConsumer`, `RegisterConsumerErr`, `RegisterContract`, `RegisterController`,
+`RegisterWorker`, `RegisterWorkerStruct`, `Scheduler`, `ServiceClient`, `SetBasePath`,
+`SetConfig`, `SetLogger`, `SetRunner`, `SetServiceClient`, `Shutdown`, `Start`,
+`WithCORS`.
+
+<Callout type="warn" title="These do not exist — do not emit them">
+  `server.Use(...)`, `server.SetRuntime(...)`, `ginboot.RuntimeLambda`,
+  `ginboot.RuntimeHTTP`, `ginboot.NewMongoRepository`, `ginboot.NewSQLRepository`,
+  `ginboot.NewMongoConfig`, `ginboot.NewSQLConfig`, `ginboot.NewDynamoConfig`.
+
+  Server-wide middleware is `server.Engine().Use(...)`. Repositories and database configs
+  live in the `db/*` submodules listed below. Some older pages and blog posts show the
+  removed forms; the compiler is the authority.
+</Callout>
+
+### Controllers and routes
+
+```go
+type Controller interface {
+	Register(group *ginboot.ControllerGroup)
+}
+```
+
+`*ControllerGroup` methods: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD`,
+`Handle`, `Group`, `Use`. Each route method has the signature
+`(path string, handler interface{}, middleware ...gin.HandlerFunc)` — note that
+**middleware comes after the handler**.
+
+### The four handler signatures
+
+```go
+func(ctx *ginboot.Context) (T, error)                  // params, auth, pagination
+func(req R) (T, error)                                 // bound + validated body only
+func(ctx *ginboot.Context, req R) (T, error)           // both, in this order
+func() (T, error)                                      // no input
+func(c *gin.Context)                                   // raw Gin, accepted unchanged
+```
+
+Rules enforced at registration time, by panic:
+
+- Exactly two return values, the second assignable to `error` (except the raw Gin form).
+- At most two parameters.
+- With two parameters, the first **must** be `*ginboot.Context`.
+
+### Response and error behaviour
+
+| Handler returns | Client receives |
+| :--- | :--- |
+| `(value, nil)` | `200` + JSON body |
+| `(string, nil)` | `200` + `text/plain; charset=utf-8` |
+| `(nil, nil)` | `200`, empty body — unless the handler already wrote a response, which is left alone |
+| `(_, ginboot.ApiError)` | The numeric code in the error (400–599), with `{"error_code","message"}` |
+| `(_, other error)` | `500` with `{"error_code":"Internal Server Error","message":...}` |
+| Bad request body | `400` `BAD_REQUEST`, before the handler runs |
+
+To return a status other than `200` on success, write it and return `nil, nil`:
+
+```go
+ctx.JSON(http.StatusCreated, user)
+return nil, nil
+```
+
+### Context API
+
+`ctx.Param`, `ctx.Query` and every other `*gin.Context` method (it is embedded), plus:
+`GetAuthContext() (AuthContext, error)`, `GetPageRequest() PageRequest`,
+`GetRequest(&v) error`, `Logger()`, `Span()`, `RecordError(err)`, `SendError(err)`,
+`CallService(name, action, payload, &target) error`, `CallServiceAsync`,
+`ServiceClient()`, `GetFileService()`.
+
+`GetAuthContext()` reads the Gin context keys **`user_id`** and **`role`**, and returns
+`401` if either is missing. Auth middleware must set both:
+
+```go
+c.Set("user_id", userID)
+c.Set("role", role)
+```
+
+### Errors
+
+```go
+var ErrNotFound = ginboot.NewApiError(404, "User with ID %s not found")
+return model.User{}, ErrNotFound.New(id)   // New() formats the message
+```
+
+### Repositories — separate modules
+
+| Backend | `go get` | Import + constructor |
+| :--- | :--- | :--- |
+| MongoDB | `github.com/klass-lk/ginboot/db/mongo` | `mongo.NewMongoRepository[T](db, "collection")` |
+| SQL (GORM) | `github.com/klass-lk/ginboot/db/sql` | `sql.NewSQLRepository[T](gormDB)` |
+| DynamoDB | `github.com/klass-lk/ginboot/db/dynamodb` | `dynamodb.NewDynamoDBRepository[T](client)` |
+| In-memory | `github.com/klass-lk/ginboot/db/inmemory` | `inmemory.NewInMemoryRepository[T]()` |
+| AWS Lambda runner | `github.com/klass-lk/ginboot/runtime/lambda` | `lambda.NewRunnerFor(server)` |
+| Telemetry plugin | `github.com/klass-lk/ginboot/telemetry` | blank import |
+
+All repositories implement `ginboot.GenericRepository[T]`: `FindById`, `FindAllById`,
+`Save`, `SaveOrUpdate`, `SaveAll`, `Update`, `Delete`, `FindOneBy`, `FindOneByFilters`,
+`FindBy`, `FindByFilters`, `FindAll`, `FindAllPaginated`, `FindByPaginated`, `CountBy`,
+`CountByFilters`, `ExistsBy`, `ExistsByFilters`, `DeleteAll`.
+
+### Background work
+
+```go
+server.RegisterWorker("cleanup", time.Hour, func(ctx context.Context) error { ... })
+server.RegisterWorkerStruct(worker)  // Name() string; Interval() time.Duration; Execute(ctx) error
+server.RegisterConsumer(ginboot.NewQueueConsumer("sms", ginboot.Queue("sms"),
+	func(ctx context.Context, msg model.SMS) error { ... }))
+```
+
+### Provided automatically
+
+`GET /healthz` and `GET /health` (also under the base path), the OpenAPI endpoint, the
+workers and triggers endpoints, and `gin.Recovery()`. Do not re-implement these.
+`GINBOOT_EXPORT_SWAGGER=openapi.json go run .` writes the spec and exits.
+
+---
+
+## Procedure A — an existing Go service
+
+Perform the steps in order. **Run the verification after each step and do not continue
+while it fails.** Commit after each step, so any step can be reverted alone.
+
+<Steps>
+
+<Step>
+
+### A1. Survey, and write the plan down
+
+Produce, and keep updated, an inventory of: every route (method, path, handler), every
+middleware and the order it runs in, every config read, every data-access call site,
+every background job, and the test entrypoints.
+
+**Verify:** the route count in your inventory equals the route count the application
+prints at startup, or that `grep` finds in the router setup.
+
+</Step>
+
+<Step>
+
+### A2. Install and take over the entrypoint
+
+```bash
+go get -u github.com/klass-lk/ginboot
+```
+
+Replace the router construction with `ginboot.New()`, move server-wide middleware to
+`server.Engine().Use(...)` **before** any route registration, and register the existing
+route tree on `server.Engine()`. Change nothing else.
+
+**Verify:**
+
+```bash
+go build ./... && go vet ./...
+go test ./...
+# start the app, then:
+curl -fsS localhost:8080/healthz
+```
+
+Plus one `curl` per route family, compared against responses recorded before the change.
+
+</Step>
+
+<Step>
+
+### A3. Configuration
+
+Create `ginboot.yml` using the environment variable names the deployment already sets, and
+replace scattered `os.Getenv` calls with `server.Config()`.
+
+```yaml
+ginboot:
+  server:
+    port: ${PORT:8080}
+    base-path: /api/v1
+    env: ${ENV:development}
+```
+
+**Verify:** the app starts both with the real environment and with an empty one. If you
+set `base-path`, confirm no route now answers at a doubled prefix.
+
+</Step>
+
+<Step>
+
+### A4. Convert one endpoint group
+
+Repeat this step once per resource, smallest and least critical first. Do not batch
+several groups into one change.
+
+1. Create `internal/controller/<resource>_controller.go` with a `Register` method.
+2. Convert each handler to one of the four signatures.
+3. Move error responses into `ApiError` values returned by the service.
+4. Register with `server.RegisterController("/<resource>", c)`.
+5. Delete the old route registration for that resource.
+
+**Verify:** `go build ./... && go test ./...`, then a response diff for every route in the
+group — status code, headers that matter, and body — against the recorded originals.
+
+</Step>
+
+<Step>
+
+### A5. Data access
+
+Replace hand-written CRUD with a repository from the matching `db/*` module, embedding it
+so custom queries survive. Add the tags the backend needs (`bson`, GORM, `dynamodbav`)
+and `GetTableName()` for SQL and DynamoDB models.
+
+**Verify:** repository tests, then the endpoint tests from A4, still pass.
+
+</Step>
+
+<Step>
+
+### A6. Background work and platform features
+
+Convert tickers and cron jobs to `RegisterWorker`/`RegisterWorkerStruct`, and queue
+pollers to `RegisterConsumer`. Then add telemetry, caching or the Lambda runner if the
+task asks for them.
+
+**Verify:** each worker logs one execution; `go test ./...` passes.
+
+</Step>
+
+<Step>
+
+### A7. Delete the old scaffolding
+
+Remove the superseded router setup, manual binding, error formatting and config loading.
+An unused parallel implementation is the most expensive thing you can leave behind.
+
+**Verify:** `go build ./... && go vet ./... && go test ./...`, and
+`grep -rn "ShouldBindJSON\|gin.Default()\|os.Getenv" --include=*.go .` returns only
+deliberate matches.
+
+</Step>
+
+</Steps>
+
+---
+
+## Procedure B — porting from another language
+
+The new service and the old one both run until the cutover completes.
+
+<Steps>
+
+<Step>
+
+### B1. Capture the contract
+
+Extract, in this order of preference: the existing OpenAPI document, recorded
+request/response traffic, or the route table plus tests. Record for every endpoint:
+method, path, parameters, request fields with types and required-ness, response shape,
+every status code, and the authentication required.
+
+Save it in the repository — `docs/api-contract.md` or `openapi.json`. It is the
+acceptance criterion for everything that follows.
+
+**Verify:** the endpoint count matches the old service's route table exactly.
+
+</Step>
+
+<Step>
+
+### B2. Scaffold
+
+```bash
+go mod init <module>
+go get -u github.com/klass-lk/ginboot
+```
+
+Layout: `cmd/main.go`, `internal/controller`, `internal/service`, `internal/repository`,
+`internal/model`, `internal/middleware`, plus `ginboot.yml`.
+
+**Verify:** `go build ./...` and `curl -fsS localhost:8080/healthz`.
+
+</Step>
+
+<Step>
+
+### B3. Models
+
+One Go struct per entity. Tag **every** field with `json` using the exact name the old API
+emits. Use pointers for fields that are nullable or whose absence differs from their zero
+value.
+
+**Verify:** unmarshal a recorded response body into the struct, marshal it back, and diff.
+The diff must be empty.
+
+</Step>
+
+<Step>
+
+### B4. Services
+
+Port the rules, not the syntax. Services take `context.Context` and return domain errors,
+and must not import `ginboot` types other than `ApiError`.
+
+Hidden behaviour is the main risk: ORM lifecycle hooks, signals, `before_save` callbacks,
+middleware that mutates the request, and framework-implicit defaults. Enumerate them from
+the old source and make each one an explicit call.
+
+**Verify:** ported unit tests pass.
+
+</Step>
+
+<Step>
+
+### B5. Repositories
+
+Point the repository at the **same database** the old service uses. Do not copy data yet.
+
+**Verify:** reads return values identical to the old service's for the same keys.
+
+</Step>
+
+<Step>
+
+### B6. Controllers, validation, auth
+
+One controller per resource. Validation moves into `binding` tags; errors become
+`ApiError` values with the **same status codes** the old API returned; auth middleware
+sets `user_id` and `role`.
+
+**Verify:** per endpoint, same request → same status, same body. Automate this as a diff
+against recorded traffic rather than checking by eye.
+
+</Step>
+
+<Step>
+
+### B7. Jobs and consumers — one owner only
+
+Port scheduled jobs and queue consumers, and disable each one in the old service at the
+moment you enable it in the new one. A job running in both services is a data-corruption
+bug, not a migration inconvenience.
+
+**Verify:** for every job, exactly one service has it enabled. State this explicitly in
+your report.
+
+</Step>
+
+<Step>
+
+### B8. Cutover
+
+Move one path prefix at a time at the proxy: read-only endpoints first, then low-traffic
+writes, then the core write paths. Keep one proxy rule per path so a rollback is a single
+change.
+
+**Verify:** `GINBOOT_EXPORT_SWAGGER=openapi.json go run ./cmd` and diff the result against
+the contract from B1.
+
+</Step>
+
+</Steps>
+
+---
+
+## Rules
+
+**Always:**
+
+- Compile and test after every step; never present unverified code as working.
+- Register routes inside a controller's `Register` method.
+- Return `(T, error)`; let the framework serialise and map.
+- Give every `ApiError` the status code the old API used for that condition.
+- Tag every struct field with `json`, and with the backend's tag for persisted models.
+- Keep the old implementation running and revertible until the new one is verified.
+- Check an API against the installed module when you are unsure it exists.
+
+**Never:**
+
+- Emit `server.Use`, `server.SetRuntime` or root-package repository constructors — see the
+  callout above.
+- Write a response body **and** return a non-nil value from the same handler.
+- Put middleware before the handler in a route registration; it comes after.
+- Invent config keys. The supported set is in [Configuration](/docs/2-core-concepts/configuration).
+- Change a path, field name, casing, date format or status code that clients depend on,
+  as part of a migration. Migrate first, redesign in a separate, announced change.
+- Re-implement `/healthz`, request logging, panic recovery or OpenAPI generation.
+- Delete the old code before the replacement has passed its verification.
+
+---
+
+## Failure modes and fixes
+
+| Symptom | Cause | Fix |
+| :--- | :--- | :--- |
+| `panic: handler must return (response, error)` | Wrong arity on a converted handler | Return exactly two values, second an `error` |
+| `panic: first argument must be *Context when using two arguments` | Parameters in the wrong order | `(ctx *ginboot.Context, req R)` |
+| `panic: handler must have 0-2 arguments` | Extra parameters | Read the rest off `ctx` |
+| `panic: handler must be a function` | A value passed where a function was expected | Pass the method, do not call it |
+| `Headers were already written` | Handler wrote a response and returned a value | Return `nil, nil` after writing |
+| Routes at `/api/v1/api/v1/...` | Base path duplicated in route strings | Strip the prefix from route strings |
+| `401` on every protected route | Middleware does not set `user_id` and `role` | Set both with `c.Set` |
+| Middleware never runs | Registered after the routes | `server.Engine().Use(...)` first |
+| Response field renamed to `PascalCase` | Missing `json` tag | Tag every field |
+| `undefined: ginboot.NewMongoRepository` | Repositories are in `db/*` submodules | `go get github.com/klass-lk/ginboot/db/mongo` and import it |
+| `ErrQueueNotProvisioned` from `QueueURL` | The queue is created on the deploy *after* the consumer is declared | Deploy twice — see [Event Triggers](/docs/3-features/event-triggers) |
+| Every success is `200`, contract says `201` | Ginboot's success default | Write the status, return `nil, nil` |
+
+---
+
+## Report back with this
+
+When you finish, or when you pause, state:
+
+1. Which procedure you ran, and which step you reached.
+2. Endpoints migrated, endpoints remaining.
+3. The verification output for the last completed step — real command output, not a claim.
+4. Any contract change you had to make, and why.
+5. Every job or consumer you enabled or disabled, and in which service.
+6. What is left, in the order you would do it.
+
+Do not describe a migration as complete while any item on the
+[definition of done](/docs/5-migration#definition-of-done) is unmet. Report the state
+accurately instead; a partial migration that is honestly described is usable, and one
+that is not is worse than none.
