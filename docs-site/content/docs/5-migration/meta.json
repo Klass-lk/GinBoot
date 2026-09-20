@@ -1,0 +1,6 @@
+{
+  "title": "Migration",
+  "description": "Move an existing API onto Ginboot, from Go or from any other language",
+  "icon": "ArrowRightLeft",
+  "pages": ["index", "from-go", "from-other-languages", "agent-playbook"]
+}

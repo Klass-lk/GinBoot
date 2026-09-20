@@ -23,7 +23,19 @@ export default defineConfig({
       themes: shikiThemes,
       // `gherkin` (4-advanced/testing.mdx) isn't in the default bundle, so it
       // has to be requested explicitly alongside the languages we already use.
-      langs: ['go', 'bash', 'yaml', 'json', 'gherkin'],
+      // The non-Go languages are the "before" snippets in
+      // 5-migration/from-other-languages.mdx.
+      langs: [
+        'go',
+        'bash',
+        'yaml',
+        'json',
+        'gherkin',
+        'javascript',
+        'typescript',
+        'python',
+        'java',
+      ],
     },
   },
 });
