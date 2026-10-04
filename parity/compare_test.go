@@ -77,6 +77,11 @@ func TestCompare(t *testing.T) {
 			ref: `{"at":"2026-01-02T04:30:00Z"}`, cand: `{"at":"2026-01-02T04:30:03Z"}`, rules: Rules{TimeAsInstant: true, TimeTolerance: 5 * time.Second}, want: map[string]DiffKind{}},
 		{name: "time outside tolerance",
 			ref: `{"at":"2026-01-02T04:30:00Z"}`, cand: `{"at":"2026-01-02T04:31:00Z"}`, rules: Rules{TimeAsInstant: true, TimeTolerance: 5 * time.Second}, want: map[string]DiffKind{"$.at": DiffValue}},
+		{name: "URLs without their query string",
+			ref:   `{"u":["https://s3/b/k.pdf?X-Sig=1&exp=2"],"v":"https://s3/b/k.pdf?a=1"}`,
+			cand:  `{"u":["https://s3/b/k.pdf?X-Sig=9"],"v":"https://s3/b/other.pdf?a=1"}`,
+			rules: Rules{IgnoreQuery: []string{"$.u[*]", "$.v"}},
+			want:  map[string]DiffKind{"$.v": DiffValue}},
 		{name: "a field-name dot pattern does not match a sibling prefix",
 			ref: `{"ab":1,"a":{"b":1}}`, cand: `{"ab":2,"a":{"b":2}}`, rules: Rules{Ignore: []string{"$.a.b"}}, want: map[string]DiffKind{"$.ab": DiffValue}},
 	}

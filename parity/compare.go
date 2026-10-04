@@ -137,6 +137,12 @@ func (c *compiledRules) walk(path string, ref, cand any, diffs []Difference) []D
 	if typeName(ref) != typeName(cand) {
 		return append(diffs, Difference{Path: path, Kind: DiffType, Ref: ref, Cand: cand})
 	}
+	if rs, ok := ref.(string); ok && matchesAny(c.ignoreQuery, path) {
+		if withoutQuery(rs) != withoutQuery(cand.(string)) {
+			return append(diffs, Difference{Path: path, Kind: DiffValue, Ref: ref, Cand: cand})
+		}
+		return diffs
+	}
 	if !c.scalarEqual(ref, cand) {
 		return append(diffs, Difference{Path: path, Kind: DiffValue, Ref: ref, Cand: cand})
 	}
@@ -314,6 +320,13 @@ func (c *compiledRules) scalarEqual(ref, cand any) bool {
 		return false
 	}
 	return ref == cand
+}
+
+func withoutQuery(u string) string {
+	if i := strings.IndexAny(u, "?#"); i >= 0 {
+		return u[:i]
+	}
+	return u
 }
 
 func numbersEqual(a, b json.Number) bool {

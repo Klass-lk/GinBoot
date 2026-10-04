@@ -71,6 +71,7 @@ cases:
 | Rule | Effect |
 |---|---|
 | `ignore: [paths]` | never compare these paths (or report them missing) |
+| `ignoreQuery: [paths]` | compare these URLs without their query string — presigned links differ in signature on every call, but host and path must match |
 | `unordered: {path: key}` | compare an array regardless of order — by `key` field, or as a multiset when `""` |
 | `nullIsMissing: [paths]` | `null` on one side equals an absent field on the other (`$..*` for everywhere) |
 | `timeAsInstant: true` | timestamps compare by instant, so `10:00+05:30` equals `04:30Z` |

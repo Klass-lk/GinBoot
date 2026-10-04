@@ -59,6 +59,11 @@ type Rules struct {
 	// "application/json". Nil means Content-Type only; an empty slice means none.
 	Headers []string `yaml:"headers" json:"headers,omitempty"`
 
+	// IgnoreQuery lists paths whose values are URLs compared without their
+	// query string — presigned links differ in their signature on every call,
+	// but scheme, host and path must still match.
+	IgnoreQuery []string `yaml:"ignoreQuery" json:"ignoreQuery,omitempty"`
+
 	// IgnoreStatus skips the status-code comparison.
 	IgnoreStatus bool `yaml:"ignoreStatus" json:"ignoreStatus,omitempty"`
 }
@@ -69,6 +74,7 @@ func (r Rules) Merge(other Rules) Rules {
 	out := r
 	out.Ignore = append(append([]string{}, r.Ignore...), other.Ignore...)
 	out.NullIsMissing = append(append([]string{}, r.NullIsMissing...), other.NullIsMissing...)
+	out.IgnoreQuery = append(append([]string{}, r.IgnoreQuery...), other.IgnoreQuery...)
 	if len(r.Unordered)+len(other.Unordered) > 0 {
 		out.Unordered = map[string]string{}
 		for k, v := range r.Unordered {
@@ -96,6 +102,7 @@ type compiledRules struct {
 	Rules
 	ignore        []*regexp.Regexp
 	nullIsMissing []*regexp.Regexp
+	ignoreQuery   []*regexp.Regexp
 	unordered     []unorderedRule
 }
 
@@ -111,6 +118,9 @@ func (r Rules) compile() (*compiledRules, error) {
 		return nil, err
 	}
 	if c.nullIsMissing, err = compilePatterns(r.NullIsMissing); err != nil {
+		return nil, err
+	}
+	if c.ignoreQuery, err = compilePatterns(r.IgnoreQuery); err != nil {
 		return nil, err
 	}
 	for p, key := range r.Unordered {
