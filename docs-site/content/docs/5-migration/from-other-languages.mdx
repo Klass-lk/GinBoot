@@ -584,9 +584,10 @@ Two techniques are worth the effort on any API that matters:
 - **Shadow traffic.** Send a copy of production requests to the new service and diff the
   responses, without returning them to clients. It finds the field you renamed by
   accident and the timestamp format you changed.
-- **Contract tests.** Write each endpoint's behaviour once in Gherkin and run it against
-  both services. Ginboot ships Godog step definitions for exactly this — see
-  [Testing & BDD](/docs/4-advanced/testing).
+- **Contract tests.** Send the same requests to both services and diff the answers.
+  `ginboot-parity` does this from a YAML list of requests, and the TestSuite has Godog steps
+  for it — see [Comparing two services](/docs/4-advanced/parity). If the new service reads the
+  production database while you compare, attach `ReadOnlyMonitor` so it cannot change it.
 
 Keep the rollback simple: one proxy rule per path, so reverting is one change.
 

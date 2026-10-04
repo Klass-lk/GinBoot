@@ -4,72 +4,144 @@ description: "Write API tests in plain Gherkin using Ginboot's Godog integration
 icon: FlaskConical
 ---
 
-Ginboot seamlessly integrates with [Godog](https://github.com/cucumber/godog) to provide an incredibly powerful Behavior-Driven Development (BDD) testing framework out of the box.
-
-This allows you to write tests in plain English using Gherkin syntax and have Ginboot's automated step definitions execute them against your API.
+Ginboot integrates with [Godog](https://github.com/cucumber/godog), so you can write API tests in
+Gherkin and have Ginboot's built-in step definitions run them against your application — in-process
+through the router, or over HTTP against a running server (`BaseURL`).
 
 ## The TestSuite
 
-Ginboot provides a `TestSuite` struct which wires up your `gin.Engine`, in-memory HTTP recorders, and Database Seeders.
+`TestSuite` wires up your `gin.Engine`, the identities requests are sent as, and your database seeders.
 
 ```go
 package tests
 
 import (
+	"net/http"
 	"testing"
+
 	"github.com/klass-lk/ginboot"
+	dbMongo "github.com/klass-lk/ginboot/db/mongo"
+	"github.com/klass-lk/ginboot/parity"
 	"github.com/my-project/api"
 )
 
 func TestAPI(t *testing.T) {
-	// 1. Initialize your normal Ginboot App
-	app := api.SetupApp()
+	app, db := api.SetupApp()
 
-	// 2. Create the TestSuite
 	suite := &ginboot.TestSuite{
-		Router:    app.Engine(),
-		DbSeeders: make(map[string]ginboot.DBSeeder),
+		Router: app.Engine(),
+
+		// Seeds and clears collections used by `has the following JSON`.
+		Adapter: &dbMongo.MongoAdapter{DB: db},
+
+		// Who "I am authenticated as" can be. Names missing from the map are
+		// passed to PrincipalProvider, so tokens can be minted on demand.
+		Principals: map[string]parity.Principal{
+			"admin": {Header: http.Header{"Authorization": {"Bearer " + mintToken("admin")}}},
+		},
+		PrincipalProvider: func(name string) (parity.Principal, error) {
+			return parity.Principal{Header: http.Header{"Authorization": {"Bearer " + mintToken(name)}}}, nil
+		},
+
+		Paths: []string{"features"}, // the default
 	}
-
-	// 3. Register your generic DB seeders for testing
-	// genericSeeder := ginboot.NewGenericDBSeeder(...)
-	// suite.RegisterDBSeeder("users", genericSeeder)
-
-	// 4. Run the BDD tests
 	ginboot.TestFeatures(t, suite)
 }
 ```
 
-## Writing Gherkin Features
+`TestFeatures` fails the test when any scenario fails, and every built-in step returns an error
+rather than only logging, so a failed assertion stops its scenario.
 
-In your `features/` directory, you can write standard Cucumber features. Ginboot has built-in step definitions that automatically parse HTTP methods, paths, bodies, and assert JSON responses!
+## Writing features
 
 ```gherkin
-Feature: User Login
+Feature: Courses
 
-  Background: Setup Database
-    # This automatically uses your registered DBSeeder to inject data!
-    Given document "users" has the following items
-      | id  | email          | password | role  |
-      | 123 | test@test.com  | p4ssw0rd | admin |
+  Background:
+    Given document "courses" has the following JSON:
+      """
+      [{"_id": "c1", "name": "Maths", "createdAt": {"$date": "2026-01-02T00:00:00Z"}, "tags": ["a", "b"]}]
+      """
 
-  Scenario: Successful Login
-    When I send a POST request to "/api/v1/auth/login" with body
-      | email         | password |
-      | test@test.com | p4ssw0rd |
+  Scenario: An admin reads a course
+    Given I am authenticated as "admin"
+    When I send a GET request to "/api/courses/c1"
     Then the response status should be 200
-    And the response should contain an item with
-      | token |
-      | ...   |
+    And the response "$.name" should be "Maths"
+    And the response "$.tags" should have 2 items
+    And the response "$.deletedAt" should not exist
+    And the response "id" field is stored as "courseId"
+    When I send a GET request to "/api/courses/{{courseId}}/sessions"
+    Then the response should match snapshot "courses/c1-sessions"
+
+  Scenario: Anonymous callers are refused
+    Given I am not authenticated
+    When I send a GET request to "/api/courses/c1"
+    Then the response status should be 401
 ```
 
-## Available Step Definitions
+Paths in assertions use the JSONPath subset described in
+[Comparing two services](/docs/4-advanced/parity#paths); a path without `$` names a top-level field.
+`{{name}}` in a path, value, header, cookie or body is replaced by a value stored earlier.
 
-The `ginboot.TestSuite` comes with the following steps pre-wired:
+## Available step definitions
 
-- `Given document "[collection]" has the following items`
-- `When I send a [GET/POST/PUT/DELETE] request to "[path]" with body`
-- `When I send an authenticated GET request to "[path]"`
-- `Then the response status should be [status_code]`
-- `Then the response "[field]" field is stored as "[key]"` (Extracts JWTs or IDs for later steps)
-- `Then the response should contain an item with [table]` (Deep JSON assertion)
+**Data**
+
+- `Given document "<collection>" has the following items` + table — fills structs through a registered `GenericDBSeeder`. Strings, numbers and booleans are read directly; other field types are parsed as JSON.
+- `Given document "<collection>" has the following JSON:` + doc string — one document or an array, inserted as-is. With `db/mongo`'s `MongoAdapter` this is MongoDB Extended JSON, so `{"$date": …}` and `{"$oid": …}` work.
+
+Seeded collections are cleared before the next scenario.
+
+**Who and how**
+
+- `Given I am authenticated as "<principal>"` / `Given I am not authenticated`
+- `Given I set the request header "<name>" to "<value>"`
+- `Given I set the cookie "<name>" to "<value>"`
+
+**Requests**
+
+- `When I send a GET|DELETE|HEAD request to "<path>"`
+- `When I send a POST|PUT|PATCH request to "<path>" with JSON:` + doc string
+- `When I send a POST|PUT request to "<path>" with body` + one-row table
+- `When I send an authenticated GET request to "<path>"` — uses the token stored as `authToken`
+
+**Assertions**
+
+- `Then the response status should be <code>`
+- `Then the response "<path>" should be "<value>"` — scalars compare as text; arrays and objects compare as JSON (`"[\"a\",\"b\"]"`)
+- `Then the response "<path>" should be null` / `should exist` / `should not exist`
+- `Then the response "<path>" should have <n> items`
+- `Then the response header "<name>" should be "<value>"`
+- `Then the response "<path>" field is stored as "<key>"`
+- `Then the response should contain an item with` + table — top-level fields
+- `Then the response should match snapshot "<name>"` — compares with `testdata/snapshots/<name>.json` (`SnapshotDir`); run with `UPDATE_SNAPSHOTS=1` to write it. `SnapshotRules` lists values allowed to differ.
+
+**Comparing with another service** — see [Comparing two services](/docs/4-advanced/parity)
+
+- `Given the reference service is at "<url>"` (or set `ReferenceURL`)
+- `When I send a GET|HEAD request to "<path>" to both services`
+- `Then both responses should match` / `Then both responses should match ignoring:` + table of paths
+
+## Your own steps
+
+Register application steps with `Steps`. They can send requests with `suite.Send` and read the last
+response with `suite.Lookup`, so they behave like the built-in ones:
+
+```go
+suite.Steps = func(ctx *godog.ScenarioContext) {
+	ctx.Step(`^the course "([^"]*)" is published$`, func(id string) error {
+		if err := suite.Send(http.MethodGet, "/api/courses/"+id, nil); err != nil {
+			return err
+		}
+		v, err := suite.Lookup("$.published")
+		if err != nil {
+			return err
+		}
+		if v != true {
+			return fmt.Errorf("course %s is not published", id)
+		}
+		return nil
+	})
+}
+```

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/klass-lk/ginboot"
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
@@ -22,7 +21,7 @@ func setupMongoCache(t *testing.T) (*MongoCacheService, func()) {
 		ExposedPorts: []string{mongoPort},
 		WaitingFor: wait.ForAll(
 			wait.ForLog("Waiting for connections"),
-			wait.ForListeningPort(nat.Port(mongoPort)),
+			wait.ForListeningPort(mongoPort),
 		),
 	}
 
@@ -35,12 +34,12 @@ func setupMongoCache(t *testing.T) (*MongoCacheService, func()) {
 		return nil, nil
 	}
 
-	mappedPort, _ := container.MappedPort(ctx, nat.Port(mongoPort))
+	mappedPort, _ := container.MappedPort(ctx, mongoPort)
 	host, _ := container.Host(ctx)
 
 	config := &MongoConfig{
 		Host:     host,
-		Port:     int(mappedPort.Int()),
+		Port:     int(mappedPort.Num()),
 		Database: "test_cache_db",
 	}
 
