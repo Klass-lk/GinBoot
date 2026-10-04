@@ -55,6 +55,10 @@ type Case struct {
 	// as the same principal: variable name -> path (see Extract).
 	Capture map[string]string `yaml:"capture" json:"capture,omitempty"`
 
+	// ShareCapture makes this case's captured values available to every
+	// principal, e.g. an id only an admin can list, used by public requests.
+	ShareCapture bool `yaml:"shareCapture" json:"shareCapture,omitempty"`
+
 	// Rules are added to the run-wide rules for this case only.
 	Rules Rules `yaml:"rules" json:"rules,omitempty"`
 
@@ -164,6 +168,7 @@ func Run(ctx context.Context, ref, cand Target, principals map[string]Principal,
 
 	report := &Report{Reference: ref.Name, Candidate: cand.Name, Started: time.Now()}
 	captured := map[string]map[string]string{} // principal -> var -> value
+	shared := map[string]string{}              // captured with ShareCapture
 
 	for _, c := range cases {
 		method := strings.ToUpper(c.Method)
@@ -199,7 +204,7 @@ func Run(ctx context.Context, ref, cand Target, principals map[string]Principal,
 				report.Results = append(report.Results, res)
 				continue
 			}
-			vars := mergeVars(p.Vars, captured[name], c.Vars)
+			vars := mergeVars(p.Vars, shared, captured[name], c.Vars)
 			target, missing := expand(c.Path, vars)
 			query := url.Values{}
 			for k, v := range c.Query {
@@ -242,6 +247,10 @@ func Run(ctx context.Context, ref, cand Target, principals map[string]Principal,
 					val, err := Extract(rr.Body, path)
 					if err != nil {
 						continue // later cases that need it are skipped with a reason
+					}
+					if c.ShareCapture {
+						shared[v] = val
+						continue
 					}
 					if captured[name] == nil {
 						captured[name] = map[string]string{}

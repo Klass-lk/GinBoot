@@ -108,6 +108,25 @@ func TestRun(t *testing.T) {
 	assert.False(t, rep.Passed())
 }
 
+func TestRunSharedCapture(t *testing.T) {
+	s := service(t, map[string]http.HandlerFunc{
+		"GET /admin/ids": write(200, `[{"id":"x1"}]`),
+		"GET /public/{id}": func(w http.ResponseWriter, r *http.Request) {
+			write(200, `{"id":"`+r.PathValue("id")+`"}`)(w, r)
+		},
+	})
+	principals := map[string]Principal{"admin": {Header: http.Header{"Authorization": {"Bearer a"}}}}
+	cases := []Case{
+		{Name: "ids", Path: "/admin/ids", Principals: []string{"admin"}, Capture: map[string]string{"id": "$[0].id"}, ShareCapture: true},
+		{Name: "public", Path: "/public/{id}"},
+	}
+	rep, err := Run(context.Background(), Target{BaseURL: s.URL}, Target{BaseURL: s.URL}, principals, cases, Rules{}, Options{})
+	require.NoError(t, err)
+	require.Len(t, rep.Results, 2)
+	assert.Equal(t, "/public/x1", rep.Results[1].Path, "an anonymous case uses the admin's shared capture")
+	assert.True(t, rep.Passed())
+}
+
 func TestRunAllowsOptInMethodsAndFilters(t *testing.T) {
 	var posts atomic.Int32
 	h := func(w http.ResponseWriter, r *http.Request) { posts.Add(1); write(200, `{}`)(w, r) }

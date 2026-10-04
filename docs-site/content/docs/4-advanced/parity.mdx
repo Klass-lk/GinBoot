@@ -60,8 +60,9 @@ cases:
   `file:path` or `exec:command`. Both services receive exactly the same credentials. `anonymous` needs no
   entry. Only principals some selected case uses are resolved.
 - **Variables** — `{name}` in a path or query comes from the case's `vars`, the principal's `vars`, or a
-  value an earlier case captured from the *reference* response. A case whose variables cannot be filled is
-  skipped with the reason, not failed.
+  value an earlier case captured from the *reference* response. Captures belong to the principal that made
+  them; add `shareCapture: true` to make them available to every principal (an id only an admin can list,
+  used by a public request). A case whose variables cannot be filled is skipped with the reason, not failed.
 - **Included files** hold a list of cases, or `rules` + `cases`; their rules apply to their own cases.
 
 ## Rules
