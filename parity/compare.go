@@ -237,14 +237,18 @@ func (c *compiledRules) walkKeyedArray(path, key string, ref, cand []any, diffs 
 	return diffs
 }
 
+// elementKey reads an element's identifying field; key may be a dotted path
+// into nested objects ("payment.id").
 func elementKey(e any, key string) (string, bool) {
-	m, ok := e.(map[string]any)
-	if !ok {
-		return "", false
-	}
-	v, ok := m[key]
-	if !ok {
-		return "", false
+	var v any = e
+	for _, part := range strings.Split(key, ".") {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return "", false
+		}
+		if v, ok = m[part]; !ok {
+			return "", false
+		}
 	}
 	return fmt.Sprint(v), true
 }

@@ -33,8 +33,8 @@ type Rules struct {
 	Ignore []string `yaml:"ignore" json:"ignore,omitempty"`
 
 	// Unordered lists arrays compared without regard to order. The value is
-	// the field that identifies an element ("id"), or "" to compare the two
-	// arrays as multisets.
+	// the field that identifies an element ("id", or a dotted path such as
+	// "payment.id"), or "" to compare the two arrays as multisets.
 	Unordered map[string]string `yaml:"unordered" json:"unordered,omitempty"`
 
 	// NullIsMissing lists paths where a null on one side and an absent field
