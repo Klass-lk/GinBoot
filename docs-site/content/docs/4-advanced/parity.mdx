@@ -62,7 +62,8 @@ cases:
 - **Variables** — `{name}` in a path or query comes from the case's `vars`, the principal's `vars`, or a
   value an earlier case captured from the *reference* response. Captures belong to the principal that made
   them; add `shareCapture: true` to make them available to every principal (an id only an admin can list,
-  used by a public request). A case whose variables cannot be filled is skipped with the reason, not failed.
+  used by a public request), and `referenceOnly: true` to send a case to the reference alone, just to
+  capture values from an endpoint the candidate does not serve yet. A case whose variables cannot be filled is skipped with the reason, not failed.
 - **Included files** hold a list of cases, or `rules` + `cases`; their rules apply to their own cases.
 
 ## Rules

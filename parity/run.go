@@ -55,6 +55,11 @@ type Case struct {
 	// as the same principal: variable name -> path (see Extract).
 	Capture map[string]string `yaml:"capture" json:"capture,omitempty"`
 
+	// ReferenceOnly sends the request to the reference alone, to capture
+	// values for later cases — for example from an endpoint the candidate does
+	// not serve yet. Nothing is compared and the result counts as skipped.
+	ReferenceOnly bool `yaml:"referenceOnly" json:"referenceOnly,omitempty"`
+
 	// ShareCapture makes this case's captured values available to every
 	// principal, e.g. an id only an admin can list, used by public requests.
 	ShareCapture bool `yaml:"shareCapture" json:"shareCapture,omitempty"`
@@ -225,15 +230,18 @@ func Run(ctx context.Context, ref, cand Target, principals map[string]Principal,
 			var wg sync.WaitGroup
 			var rr, cr Response
 			var rerr, cerr error
-			wg.Add(2)
+			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				rr, res.RefTime, rerr = send(ctx, client, ref, method, target, c.Header, p, maxBody)
 			}()
-			go func() {
-				defer wg.Done()
-				cr, res.CandTime, cerr = send(ctx, client, cand, method, target, c.Header, p, maxBody)
-			}()
+			if !c.ReferenceOnly {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					cr, res.CandTime, cerr = send(ctx, client, cand, method, target, c.Header, p, maxBody)
+				}()
+			}
 			wg.Wait()
 			res.RefStatus, res.CandStatus = rr.Status, cr.Status
 			switch {
@@ -242,7 +250,11 @@ func Run(ctx context.Context, ref, cand Target, principals map[string]Principal,
 			case cerr != nil:
 				res.Err = cand.Name + ": " + cerr.Error()
 			default:
-				res.Diffs = caseRules.compare(rr, cr)
+				if c.ReferenceOnly {
+					res.Skipped = "reference only"
+				} else {
+					res.Diffs = caseRules.compare(rr, cr)
+				}
 				for v, path := range c.Capture {
 					val, err := Extract(rr.Body, path)
 					if err != nil {

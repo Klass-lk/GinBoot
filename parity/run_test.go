@@ -116,13 +116,21 @@ func TestRunSharedCapture(t *testing.T) {
 		},
 	})
 	principals := map[string]Principal{"admin": {Header: http.Header{"Authorization": {"Bearer a"}}}}
+	cand := service(t, map[string]http.HandlerFunc{ // does not serve /admin/ids
+		"GET /public/{id}": func(w http.ResponseWriter, r *http.Request) {
+			write(200, `{"id":"`+r.PathValue("id")+`"}`)(w, r)
+		},
+	})
 	cases := []Case{
-		{Name: "ids", Path: "/admin/ids", Principals: []string{"admin"}, Capture: map[string]string{"id": "$[0].id"}, ShareCapture: true},
+		{Name: "ids", Path: "/admin/ids", Principals: []string{"admin"}, Capture: map[string]string{"id": "$[0].id"},
+			ShareCapture: true, ReferenceOnly: true},
 		{Name: "public", Path: "/public/{id}"},
 	}
-	rep, err := Run(context.Background(), Target{BaseURL: s.URL}, Target{BaseURL: s.URL}, principals, cases, Rules{}, Options{})
+	rep, err := Run(context.Background(), Target{BaseURL: s.URL}, Target{BaseURL: cand.URL}, principals, cases, Rules{}, Options{})
 	require.NoError(t, err)
 	require.Len(t, rep.Results, 2)
+	assert.Equal(t, "reference only", rep.Results[0].Skipped, "a reference-only case is not compared")
+	assert.Equal(t, 0, rep.Results[0].CandStatus, "and is never sent to the candidate")
 	assert.Equal(t, "/public/x1", rep.Results[1].Path, "an anonymous case uses the admin's shared capture")
 	assert.True(t, rep.Passed())
 }
