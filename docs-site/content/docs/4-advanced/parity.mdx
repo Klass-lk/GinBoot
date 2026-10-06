@@ -1,0 +1,130 @@
+---
+title: "Comparing two services"
+description: "Prove a port answers like the API it replaces: send the same requests to both, normalise what may differ, report the rest."
+icon: GitCompare
+---
+
+When you port an API to Ginboot, the old service is the specification. The `parity` package and the
+`ginboot-parity` command send the same requests to the old service (the **reference**) and the new one
+(the **candidate**), as the same users, and report every difference that is not explicitly allowed.
+
+<Callout type="warn" title="Safe to point at production — by default">
+  Only `GET` and `HEAD` are sent unless you list other methods in `allowMethods`. Reports show the type,
+  size and a short hash of differing values instead of the values themselves; pass `-show-values` when
+  you need them. If the candidate reads a database it must not change, attach
+  [`ReadOnlyMonitor`](#a-read-only-candidate) too.
+</Callout>
+
+## The command
+
+```bash
+go install github.com/klass-lk/ginboot/cmd/ginboot-parity@latest
+
+ginboot-parity -config parity.yaml                      # every case
+ginboot-parity -config parity.yaml -cases 'cases/users*.yaml' -principal admin
+ginboot-parity -config parity.yaml -cand http://localhost:8080 -format markdown -out reports/today.md
+```
+
+It exits `0` when everything matched, `1` when anything differed or failed, and `2` on a configuration
+error — so it can gate CI.
+
+## Configuration
+
+```yaml
+reference: { name: legacy, baseURL: https://api.example.com }
+candidate: { name: ginboot, baseURL: http://localhost:8080 }
+
+principals:
+  admin:   { token: "env:ADMIN_TOKEN" }                 # sent as Authorization: Bearer …
+  student: { source: "exec:./scripts/principal student" } # prints {"token","header","cookies","vars"}
+
+rules:                      # apply to every case
+  timeAsInstant: true
+  ignore: ["$..signedUrl"]
+
+include: ["cases/*.yaml"]
+
+cases:
+  - name: list courses
+    path: /api/courses
+    principals: [admin, student, anonymous]
+    capture: { courseId: "$[0].id" }        # used by later cases, per principal
+  - name: one course
+    path: /api/courses/{courseId}
+    query: { include: "{tenantId}" }        # {tenantId} from the principal's vars
+    principals: [admin, student]
+    rules: { unordered: { "$.tags": "" } }  # this case only
+```
+
+- **Principals** — values of `token`, `source`, `header` and `cookies` may be literal, `env:NAME`,
+  `file:path` or `exec:command`. Both services receive exactly the same credentials. `anonymous` needs no
+  entry. Only principals some selected case uses are resolved.
+- **Variables** — `{name}` in a path or query comes from the case's `vars`, the principal's `vars`, or a
+  value an earlier case captured from the *reference* response. Captures belong to the principal that made
+  them; add `shareCapture: true` to make them available to every principal (an id only an admin can list,
+  used by a public request), and `referenceOnly: true` to send a case to the reference alone, just to
+  capture values from an endpoint the candidate does not serve yet. A case whose variables cannot be filled is skipped with the reason, not failed.
+- **Included files** hold a list of cases, or `rules` + `cases`; their rules apply to their own cases.
+
+## Rules
+
+| Rule | Effect |
+|---|---|
+| `ignore: [paths]` | never compare these paths (or report them missing) |
+| `ignoreQuery: [paths]` | compare these URLs without their query string — presigned links differ in signature on every call, but host and path must match |
+| `unordered: {path: key}` | compare an array regardless of order — by `key` field, or as a multiset when `""` |
+| `nullIsMissing: [paths]` | `null` on one side equals an absent field on the other (`$..*` for everywhere) |
+| `timeAsInstant: true` | timestamps compare by instant, so `10:00+05:30` equals `04:30Z` |
+| `timeTolerance: 2s` | largest gap still counted equal, with `timeAsInstant` |
+| `strictNumbers: true` | `5` and `5.0` differ (by default numbers compare by value) |
+| `headers: [names]` | headers that must match; default `Content-Type`, compared by media type |
+| `ignoreStatus: true` | skip the status-code check |
+
+Everything else is a difference: status codes, `Content-Type`, field names, `null` vs absent, `[]` vs
+`null`, array order, value changes.
+
+### Paths
+
+| Path | Selects |
+|---|---|
+| `$.user.name` | a field |
+| `$.items[0]` | one element |
+| `$.items[*].id` | every element's `id` (in rules); the first one (in `capture`) |
+| `$.*.id` | every field's `id` |
+| `$..signedUrl` | `signedUrl` at any depth |
+| `$.map.*~` | (capture only) the first key of an object |
+
+## From Go
+
+```go
+report, err := parity.Run(ctx,
+	parity.Target{Name: "legacy", BaseURL: legacyURL},
+	parity.Target{Name: "ginboot", BaseURL: candidateURL},
+	principals, cases, rules, parity.Options{})
+report.WriteMarkdown(os.Stdout, parity.RenderOptions{FailuresOnly: true})
+```
+
+`parity.Compare(ref, cand, rules)` is the pure comparison, if you already have both responses. The
+[TestSuite](/docs/4-advanced/testing) exposes the same comparison as Godog steps:
+
+```gherkin
+Given the reference service is at "https://api.example.com"
+And I am authenticated as "admin"
+When I send a GET request to "/api/courses" to both services
+Then both responses should match ignoring:
+  | $..signedUrl |
+```
+
+## A read-only candidate
+
+Comparing against production data usually means the candidate reads the production database. Attach
+`ReadOnlyMonitor` from `db/mongo` and the client refuses every command that would change data or schema —
+inserts, updates, deletes, `findAndModify`, index and collection management, and aggregations ending in
+`$out` or `$merge` — before it is sent:
+
+```go
+opts := options.Client().ApplyURI(uri).SetMonitor(dbMongo.ReadOnlyMonitor(nil))
+```
+
+A refused command panics with a `ReadOnlyViolation`; Ginboot's recovery turns it into a `500` for that
+request, which then shows up as a difference.

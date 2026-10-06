@@ -2,5 +2,5 @@
   "title": "Advanced & Operations",
   "description": "Testing, deployment, hosting and release notes",
   "icon": "Settings2",
-  "pages": ["testing", "deployment", "ginboot-cloud", "changelog"]
+  "pages": ["testing", "parity", "deployment", "ginboot-cloud", "changelog"]
 }

@@ -10,6 +10,21 @@ All notable changes, new features, architectural improvements, and deprecations 
 
 ## [Unreleased]
 
+### 🧪 Testing & migration
+
+#### 1. `parity` package and `ginboot-parity` command
+- Send the same requests to two services, as the same users, and report every difference that is not explicitly allowed — for proving a port answers like the API it replaces. See [Comparing two services](/docs/4-advanced/parity).
+- Rules for ignored paths, unordered arrays, `null` vs absent, timestamps compared as instants, and number formatting. Only `GET`/`HEAD` are sent unless allowed, and reports redact response values by default.
+
+#### 2. `db/mongo.ReadOnlyMonitor`
+- A command monitor that refuses every command that would change data or schema before it is sent, for running a service against a database it must not change.
+- `MongoAdapter.InsertJSON` seeds documents from MongoDB Extended JSON.
+
+#### 3. TestSuite **(behaviour change)**
+- Failing assertions now fail their step: `the response status should be` and `the response should contain an item with` used to log through `assert` and return `nil`, so the scenario carried on and reported success.
+- New steps: principals (`I am authenticated as`), headers and cookies, JSON bodies, JSONPath assertions, Extended JSON seeding, snapshots, and comparison with a reference service. `Steps` registers application steps; `Send` and `Lookup` are exported for them.
+- `Paths` makes the feature location configurable; `TestFeatures` fails the test when a scenario fails.
+
 ### 🔭 Telemetry
 
 #### 1. `ginboot.yml`'s telemetry block now does something

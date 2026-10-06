@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/klass-lk/ginboot"
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
@@ -27,7 +26,7 @@ func setupTestContainer(t *testing.T) (testcontainers.Container, *MongoConfig, e
 	ctx := context.Background()
 
 	mongoPort := "27017/tcp"
-	natPort := nat.Port(mongoPort)
+	natPort := mongoPort
 
 	req := testcontainers.ContainerRequest{
 		Image:        "mongo:latest",
@@ -58,7 +57,7 @@ func setupTestContainer(t *testing.T) (testcontainers.Container, *MongoConfig, e
 
 	config := &MongoConfig{
 		Host:     host,
-		Port:     int(mappedPort.Int()),
+		Port:     int(mappedPort.Num()),
 		Database: "test_db",
 	}
 
