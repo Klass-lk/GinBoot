@@ -1,8 +1,16 @@
 import { Hero } from '@/components/home/hero';
 import { CodeShowcase } from '@/components/home/code-showcase';
 import { FeatureGrid } from '@/components/home/feature-grid';
+import { PathsIn } from '@/components/home/paths-in';
 import { CloudCta } from '@/components/home/cloud-cta';
+import type { Metadata } from 'next';
 import { appName, externalLinks, siteUrl } from '@/lib/shared';
+
+export const metadata: Metadata = {
+  alternates: {
+    canonical: '/',
+  },
+};
 
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -13,7 +21,7 @@ const jsonLd = {
   programmingLanguage: 'Go',
   license: 'https://opensource.org/licenses/MIT',
   description:
-    'Ginboot is an enterprise-ready, high-performance Go web framework built on top of Gin, with database-agnostic repositories, AWS Lambda support, OpenTelemetry and declarative configuration.',
+    'Ginboot is an open-source Go web framework built on Gin. It handles request binding, error mapping, configuration, database repositories, OpenTelemetry tracing and AWS Lambda, while handlers stay plain Go functions.',
   keywords: [
     'Go web framework',
     'Golang API framework',
@@ -33,6 +41,7 @@ export default function HomePage() {
       />
       <Hero />
       <CodeShowcase />
+      <PathsIn />
       <FeatureGrid />
       <CloudCta />
     </>

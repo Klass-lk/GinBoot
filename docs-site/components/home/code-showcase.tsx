@@ -91,8 +91,9 @@ export function CodeShowcase() {
           Controllers, not boilerplate
         </h2>
         <p className="mt-4 text-fd-muted-foreground">
-          Register a controller and return typed DTOs. Ginboot wires up binding, error handling,
-          tracing and serialisation — and the same code runs as an HTTP server or a Lambda function.
+          A handler is a function that takes a request and returns a value and an error. Ginboot
+          does the binding, status codes, tracing and JSON around it, and the same binary runs as an
+          HTTP server or a Lambda function.
         </p>
       </div>
 

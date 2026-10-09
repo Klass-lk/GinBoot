@@ -22,33 +22,37 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'Ginboot - The Best Go Web Framework for Modern APIs',
+    default: 'Ginboot: Open-Source Go Web Framework Built on Gin',
     template: '%s | Ginboot',
   },
   description:
-    'Ginboot is an enterprise-ready, high-performance Golang web framework built on top of Gin. Features out-of-the-box MongoDB, SQL, DynamoDB support, AWS Lambda serverless execution, OpenTelemetry, and BDD testing.',
+    'Build production REST APIs in Go on top of Gin. Ginboot handles binding, errors, config, SQL, MongoDB and DynamoDB repositories, OpenTelemetry and AWS Lambda.',
   keywords: [
     'Go web framework',
-    'Golang API framework',
-    'Gin web framework',
+    'Golang web framework',
+    'Gin framework',
+    'Go REST API framework',
     'Golang REST API',
+    'Go microservices framework',
+    'Go AWS Lambda',
     'serverless Go',
-    'AWS Lambda Go framework',
-    'Golang microservices',
-    'best Go framework',
+    'OpenTelemetry Go',
+    'Go repository pattern',
   ],
   openGraph: {
-    title: 'Ginboot | The Ultimate Golang Web Framework',
+    title: 'Ginboot: Gin, with the boring parts done',
     description:
-      'Build robust, scalable APIs in Go faster than ever. Built-in DB repositories, AWS Lambda support, and Telemetry.',
+      'An open-source Go web framework on Gin. Binding, errors, config, repositories and tracing come built in, and your handlers stay plain Go functions.',
     url: siteUrl,
     siteName: 'Ginboot',
+    locale: 'en_US',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Ginboot | High-Performance Go Framework',
-    description: 'The easiest way to build enterprise Go microservices. Try Ginboot today.',
+    title: 'Ginboot: Gin, with the boring parts done',
+    description:
+      'Open-source Go web framework on Gin. Binding, config, repositories, OpenTelemetry and AWS Lambda built in. No annotations, no DI container.',
   },
   robots: {
     index: true,

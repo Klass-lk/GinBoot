@@ -1,10 +1,10 @@
 ---
 title: "Introduction"
-description: "Ginboot is an enterprise-ready Go web framework built on Gin, with database-agnostic repositories, AWS Lambda support and OpenTelemetry built in."
+description: "Ginboot is an open-source Go web framework built on Gin, with request binding, configuration, database repositories, OpenTelemetry and AWS Lambda support built in."
 icon: Book
 ---
 
-Ginboot is a lightweight and powerful Go web framework built on top of Gin. It takes the Spring Boot approach — opinionated defaults, batteries included — and applies it to Go, so you can go from an empty directory to a production-ready API without assembling the plumbing yourself.
+Ginboot is a lightweight and powerful Go web framework built on top of Gin. It handles the code every production API ends up writing (request binding, error mapping, configuration, repositories, tracing) so you can go from an empty directory to a production-ready API without assembling the plumbing yourself. Handlers stay plain Go functions: there are no annotations, no DI container and no code generation.
 
 <Callout type="info">
   New here? The [Getting Started](/docs/1-getting-started) guide takes about five minutes, and

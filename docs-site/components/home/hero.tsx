@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import { GithubIcon } from '@/components/icons';
 import { externalLinks } from '@/lib/shared';
 import { InstallCommand } from './install-command';
@@ -26,13 +26,15 @@ export function Hero() {
         </Link>
 
         <h1 className="animate-slide-up text-5xl font-extrabold tracking-tight text-balance sm:text-7xl">
-          <span className="text-gradient-primary">Spring Boot</span>
-          <span className="text-fd-foreground">, for Go.</span>
+          <span className="text-gradient-primary">Gin</span>
+          <span className="text-fd-foreground">, with the boring parts done.</span>
         </h1>
 
         <p className="animate-slide-up mt-6 max-w-2xl text-lg text-balance text-fd-muted-foreground sm:text-xl">
-          Ginboot is an enterprise-ready Go web framework built on Gin. Database-agnostic
-          repositories, AWS Lambda, OpenTelemetry and declarative configuration — all out of the box.
+          Request binding, error mapping, config, repositories, tracing and workers: the code every
+          production API ends up writing, already written. Handlers are plain functions that return{' '}
+          <code className="font-mono text-base text-fd-foreground">(T, error)</code>. No
+          annotations, no DI container, no code generation.
         </p>
 
         <div className="animate-slide-up mt-10 flex flex-wrap items-center justify-center gap-3">
@@ -57,6 +59,17 @@ export function Hero() {
         <div className="animate-slide-up mt-10 flex justify-center">
           <InstallCommand command="go get -u github.com/klass-lk/ginboot" />
         </div>
+
+        <Link
+          href={externalLinks.cloud}
+          target="_blank"
+          rel="noreferrer"
+          className="animate-slide-up group mt-6 inline-flex items-center gap-1.5 text-sm text-fd-muted-foreground transition-colors hover:text-fd-foreground"
+        >
+          Or push to GitHub and run it on AWS Lambda with{' '}
+          <span className="font-semibold text-brand-orange">Ginboot Cloud</span>, free to start
+          <ArrowUpRight className="size-3.5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+        </Link>
       </div>
     </section>
   );

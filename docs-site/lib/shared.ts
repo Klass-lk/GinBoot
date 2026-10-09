@@ -1,5 +1,5 @@
 export const appName = 'Ginboot';
-export const appTagline = 'Spring Boot, for Go.';
+export const appTagline = 'Gin, with the boring parts done.';
 export const siteUrl = 'https://ginboot.com';
 
 export const docsRoute = '/docs';

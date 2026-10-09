@@ -26,7 +26,7 @@ const features: {
     icon: Cloud,
     title: 'Serverless ready',
     description:
-      'Detects AWS Lambda at runtime and proxies API Gateway requests automatically. The same controllers run either way.',
+      'Detects AWS Lambda at runtime and proxies API Gateway requests automatically. The same controllers run either way, and Ginboot Cloud deploys them for you.',
     href: '/docs/3-features/aws-lambda',
   },
   {
@@ -67,8 +67,8 @@ export function FeatureGrid() {
           Batteries included
         </h2>
         <p className="mt-4 text-fd-muted-foreground">
-          Everything a production Go service needs, wired up and ready — without giving up the Gin
-          APIs you already know.
+          Everything a production Go service needs is already there, and each piece is optional.
+          Use what helps and keep writing plain Gin for the rest.
         </p>
       </div>
 
