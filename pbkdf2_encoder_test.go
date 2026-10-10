@@ -1,10 +1,14 @@
 package ginboot
 
 import (
+	"crypto/rand"
 	"crypto/sha512"
 	"encoding/base64"
+	"errors"
+	"io"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,6 +36,19 @@ func TestPBKDF2Encoder_RoundTrip(t *testing.T) {
 	assert.True(t, e.IsMatching(hash, "correct horse"))
 	assert.False(t, e.IsMatching(hash, "wrong horse"))
 	assert.False(t, e.NeedsRehash(hash))
+}
+
+// An application may replace rand.Reader with its own source. If that source
+// fails, the caller is told rather than handed a hash built on a salt that was
+// never filled.
+func TestPBKDF2Encoder_ReportsSaltFailure(t *testing.T) {
+	defer func(original io.Reader) { rand.Reader = original }(rand.Reader)
+	rand.Reader = iotest.ErrReader(errors.New("no entropy"))
+
+	hash, err := testEncoder().GetPasswordHash("pw")
+
+	assert.ErrorContains(t, err, "generating salt")
+	assert.Empty(t, hash, "a failed salt must not produce a usable hash")
 }
 
 func TestPBKDF2Encoder_SamePasswordGetsDifferentHashes(t *testing.T) {

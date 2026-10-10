@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -66,9 +67,18 @@ func envPositiveInt(name string, def int) int {
 
 func (P PBKDF2Encoder) GetPasswordHash(password string) (string, error) {
 	salt := make([]byte, pbkdf2SaltSize)
-	if _, err := rand.Read(salt); err != nil {
+
+	// Drawn from rand.Reader rather than with rand.Read, which crashes the
+	// program irrecoverably when the system source fails. That is the right
+	// answer for the default Reader — a host with no entropy cannot be served
+	// safely — but Reader is a documented global, and an application that has
+	// replaced it with a hardware or FIPS source can fail in ways worth
+	// reporting to the caller instead. ReadFull also refuses a short read, so
+	// no salt here is ever partly zero.
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 		return "", fmt.Errorf("generating salt: %w", err)
 	}
+
 	key := pbkdf2.Key([]byte(password), salt, P.Iteration, P.KeyLength, sha512.New)
 	return fmt.Sprintf("%s%d$%s$%s", pbkdf2Prefix, P.Iteration,
 		base64.RawStdEncoding.EncodeToString(salt),
