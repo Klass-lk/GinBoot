@@ -56,7 +56,7 @@ export function Hero() {
           </Link>
         </div>
 
-        <div className="animate-slide-up mt-10 flex justify-center">
+        <div className="animate-slide-up mt-10 flex w-full justify-center">
           <InstallCommand command="go get -u github.com/klass-lk/ginboot" />
         </div>
 
@@ -64,11 +64,15 @@ export function Hero() {
           href={externalLinks.cloud}
           target="_blank"
           rel="noreferrer"
-          className="animate-slide-up group mt-6 inline-flex items-center gap-1.5 text-sm text-fd-muted-foreground transition-colors hover:text-fd-foreground"
+          className="animate-slide-up group mt-6 block max-w-md text-sm leading-relaxed text-balance text-fd-muted-foreground transition-colors hover:text-fd-foreground"
         >
+          {/* Plain inline text, not flex, so it wraps as one sentence on narrow screens */}
           Or push to GitHub and run it on AWS Lambda with{' '}
-          <span className="font-semibold text-brand-orange">Ginboot Cloud</span>, free to start
-          <ArrowUpRight className="size-3.5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+          <span className="whitespace-nowrap font-semibold text-brand-orange">
+            Ginboot Cloud
+          </span>
+          , free&nbsp;to&nbsp;start
+          <ArrowUpRight className="ml-1 inline-block size-3.5 align-[-0.125em] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
         </Link>
       </div>
     </section>

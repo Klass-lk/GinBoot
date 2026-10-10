@@ -15,11 +15,11 @@ export function InstallCommand({ command }: { command: string }) {
   }, [copied]);
 
   return (
-    <div className="glass-card flex w-full max-w-md items-center gap-3 px-4 py-2.5 font-mono text-sm">
+    <div className="glass-card flex min-w-0 max-w-full items-center gap-2 px-3 py-2.5 font-mono text-xs sm:gap-3 sm:px-4 sm:text-sm">
       <span aria-hidden className="select-none text-brand">
         $
       </span>
-      <code className="flex-1 overflow-x-auto whitespace-nowrap text-left text-fd-foreground">
+      <code className="min-w-0 overflow-x-auto whitespace-nowrap text-left text-fd-foreground">
         {command}
       </code>
       <button
