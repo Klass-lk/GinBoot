@@ -122,7 +122,7 @@ func main() {
 
 ## Password Encoding
 
-Ginboot provides a `PasswordEncoder` interface and a `PBKDF2Encoder` implementation for secure password hashing and verification.
+Ginboot provides a `PasswordEncoder` interface and a `PBKDF2Encoder` implementation for password hashing and verification.
 
 ### `PasswordEncoder` Interface
 
@@ -135,56 +135,53 @@ type PasswordEncoder interface {
 
 ### `PBKDF2Encoder`
 
-This implementation uses PBKDF2 with SHA512 for strong password hashing. It requires specific environment variables for configuration.
+This implementation uses PBKDF2-HMAC-SHA512 with a random 16-byte salt for every password. Each hash records its own parameters:
+
+```
+pbkdf2-sha512$<iterations>$<salt>$<key>
+```
+
+Two users with the same password get different hashes, and changing the iteration count or key length never invalidates a stored hash.
 
 ### Environment Variables
 
-*   `PBKDF2_ENCODER_SECRET`: A secret string used as a salt for hashing.
-*   `PBKDF2_ENCODER_ITERATION`: The number of iterations for the PBKDF2 algorithm (e.g., `10000`).
-*   `PBKDF2_ENCODER_KEY_LENGTH`: The desired length of the derived key (e.g., `32`).
+*   `PBKDF2_ENCODER_ITERATION`: iterations for new hashes. Defaults to `210000`, OWASP's recommendation for PBKDF2-SHA512.
+*   `PBKDF2_ENCODER_KEY_LENGTH`: derived key length in bytes. Defaults to `32`.
+*   `PBKDF2_ENCODER_SECRET`: only needed to verify hashes written by Ginboot versions before per-password salts, which used this value as one salt shared by every password. New hashes never use it.
+
+A variable that is set but is not a positive integer panics at startup rather than falling back to a default.
 
 ### Usage Example
 
 ```go
-import (
-	"fmt"
-	"github.com/klass-lk/ginboot"
-	os
-)
+encoder := ginboot.NewPBKDF2Encoder()
 
-func init() {
-	// Set environment variables for demonstration
-	os.Setenv("PBKDF2_ENCODER_SECRET", "randomsaltstring")
-	os.Setenv("PBKDF2_ENCODER_ITERATION", "10000")
-	os.Setenv("PBKDF2_ENCODER_KEY_LENGTH", "32")
+hash, err := encoder.GetPasswordHash("mySecurePassword123")
+if err != nil {
+	return err
 }
 
-func main() {
-	encoder := ginboot.NewPBKDF2Encoder()
+encoder.IsMatching(hash, "mySecurePassword123") // true
+encoder.IsMatching(hash, "wrongpassword")       // false
+```
 
-	password := "mySecurePassword123"
-	hashedPassword, err := encoder.GetPasswordHash(password)
-	if err != nil {
-		fmt.Println("Error hashing password:", err)
-		return
-	}
-	fmt.Println("Hashed Password:", hashedPassword)
+### Upgrading stored hashes
 
-	// Verify a matching password
-	if encoder.IsMatching(hashedPassword, password) {
-		fmt.Println("Password matches!")
-	} else {
-		fmt.Println("Password does NOT match.")
-	}
+`NeedsRehash` reports whether a stored hash uses the old shared salt or weaker parameters than the encoder is configured with. Check it after a successful login, while you have the plain password, and store a fresh hash:
 
-	// Verify a non-matching password
-	if encoder.IsMatching(hashedPassword, "wrongpassword") {
-		fmt.Println("Wrong password matches (ERROR)!")
-	} else {
-		fmt.Println("Wrong password does not match (CORRECT).")
+```go
+if encoder.IsMatching(user.PasswordHash, req.Password) {
+	if encoder.NeedsRehash(user.PasswordHash) {
+		if hash, err := encoder.GetPasswordHash(req.Password); err == nil {
+			user.PasswordHash = hash
+			_ = repo.Update(user)
+		}
 	}
+	// ... issue tokens
 }
 ```
+
+Users move to the new format as they sign in, with no password reset. Keep `PBKDF2_ENCODER_SECRET` set until no legacy hashes remain.
 
 ## Integrating Custom Authentication Middleware
 

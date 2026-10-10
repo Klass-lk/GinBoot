@@ -10,6 +10,14 @@ All notable changes, new features, architectural improvements, and deprecations 
 
 ## [Unreleased]
 
+### 🔐 Security
+
+#### 1. `PBKDF2Encoder` salts every password **(behaviour change)**
+- Hashes were salted with `PBKDF2_ENCODER_SECRET`, one value shared by every password, so equal passwords produced equal hashes and a leaked table could be attacked all at once.
+- New hashes use a random 16-byte salt and record their parameters: `pbkdf2-sha512$<iterations>$<salt>$<key>`.
+- Existing hashes still verify. `NeedsRehash` reports them so an application can store a fresh hash at the next successful login. See [Upgrading stored hashes](/docs/3-features/authentication#upgrading-stored-hashes).
+- `PBKDF2_ENCODER_ITERATION` and `PBKDF2_ENCODER_KEY_LENGTH` now default to `210000` and `32` instead of panicking when unset.
+
 ### 🧪 Testing & migration
 
 #### 1. `parity` package and `ginboot-parity` command
