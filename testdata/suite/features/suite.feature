@@ -59,3 +59,27 @@ Feature: TestSuite steps
   Scenario: Snapshots
     When I send a GET request to "/items/1"
     Then the response should match snapshot "item-1"
+
+  Scenario: Checking what a request stored
+    Then document "notes" should have 0 items
+    When I send a POST request to "/notes" with JSON:
+      """
+      {"text": "hello", "tags": ["a", "b"], "meta": {"by": "admin", "n": 2}}
+      """
+    Then the response status should be 201
+    And document "notes" should have 1 item
+    And document "notes" should contain an item with JSON:
+      """
+      {"id": "<any>", "text": "hello", "tags": ["a", "b"], "meta": {"n": 2.0}}
+      """
+    And document "notes" should have 1 item matching JSON:
+      """
+      {"text": "hello"}
+      """
+    And document "notes" should have 0 items matching JSON:
+      """
+      {"text": "other"}
+      """
+
+  Scenario: Collections written by requests are reset between scenarios
+    Then document "notes" should have 0 items

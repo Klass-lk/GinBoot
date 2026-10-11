@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,6 +47,35 @@ func (m *memoryAdapter) InsertJSON(collection string, data []byte) error {
 	return nil
 }
 
+// FindJSON returns the collection's documents as JSON values; a filter
+// keeps those whose top-level fields equal the filter's.
+func (m *memoryAdapter) FindJSON(collection string, filter []byte) ([]any, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var want map[string]any
+	if len(filter) > 0 {
+		if err := json.Unmarshal(filter, &want); err != nil {
+			return nil, err
+		}
+	}
+	out := []any{}
+	for _, d := range m.docs[collection] {
+		b, _ := json.Marshal(d)
+		var doc map[string]any
+		_ = json.Unmarshal(b, &doc)
+		keep := true
+		for k, v := range want {
+			if doc[k] != v {
+				keep = false
+			}
+		}
+		if keep {
+			out = append(out, doc)
+		}
+	}
+	return out, nil
+}
+
 func (m *memoryAdapter) Clear(collection string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -79,6 +109,15 @@ func suiteRouter(db *memoryAdapter, generatedAt, version string) *gin.Engine {
 		db.mu.Lock()
 		defer db.mu.Unlock()
 		c.JSON(200, gin.H{"count": len(db.docs["notes"])})
+	})
+	r.POST("/notes", func(c *gin.Context) {
+		var body map[string]any
+		_ = c.BindJSON(&body)
+		db.mu.Lock()
+		body["id"] = fmt.Sprintf("note-%d", len(db.docs["notes"])+1)
+		db.docs["notes"] = append(db.docs["notes"], body)
+		db.mu.Unlock()
+		c.JSON(201, body)
 	})
 	r.GET("/echo/:value", func(c *gin.Context) { c.JSON(200, gin.H{"value": c.Param("value")}) })
 	r.POST("/echo", func(c *gin.Context) {
@@ -116,6 +155,8 @@ func TestSuiteFeatures(t *testing.T) {
 		ReferenceURL: reference.URL,
 		SnapshotDir:  snapshots,
 		Paths:        []string{"testdata/suite/features"},
+		// Written by POST /notes, which no scenario seeds.
+		ResetCollections: []string{"notes"},
 		Principals: map[string]parity.Principal{
 			"admin": {Header: http.Header{"Authorization": {"Bearer admin-token"}}},
 		},
@@ -148,4 +189,30 @@ func TestSuiteStepsFail(t *testing.T) {
 	require.NoError(t, ts.theResponseShouldMatchSnapshot("created"))
 	t.Setenv("UPDATE_SNAPSHOTS", "")
 	assert.NoError(t, ts.theResponseShouldMatchSnapshot("created"), "a freshly written snapshot matches")
+}
+
+func TestContainsJSON(t *testing.T) {
+	got := map[string]any{"a": 1.0, "b": map[string]any{"c": "x", "d": []any{1.0, 2.0}}, "e": nil}
+	for _, tc := range []struct {
+		want string
+		ok   bool
+		path string
+	}{
+		{`{"a": 1}`, true, ""},
+		{`{"b": {"c": "x"}}`, true, ""},
+		{`{"b": {"d": [1, 2]}}`, true, ""},
+		{`{"a": "<any>", "b": "<any>"}`, true, ""},
+		{`{"e": "<any>"}`, false, "$.e"},
+		{`{"b": {"d": [1]}}`, false, "$.b.d"},
+		{`{"b": {"c": "y"}}`, false, "$.b.c"},
+		{`{"z": 1}`, false, "$.z"},
+	} {
+		var want any
+		require.NoError(t, json.Unmarshal([]byte(tc.want), &want))
+		path, ok := containsJSON("$", want, got)
+		assert.Equal(t, tc.ok, ok, tc.want)
+		if !tc.ok {
+			assert.Equal(t, tc.path, path, tc.want)
+		}
+	}
 }

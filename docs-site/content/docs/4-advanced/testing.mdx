@@ -90,6 +90,9 @@ Paths in assertions use the JSONPath subset described in
 
 - `Given document "<collection>" has the following items` + table — fills structs through a registered `GenericDBSeeder`. Strings, numbers and booleans are read directly; other field types are parsed as JSON.
 - `Given document "<collection>" has the following JSON:` + doc string — one document or an array, inserted as-is. With `db/mongo`'s `MongoAdapter` this is MongoDB Extended JSON, so `{"$date": …}` and `{"$oid": …}` work.
+- `Then document "<collection>" should have <n> items` / `... should have <n> items matching JSON:` + an Extended JSON filter — counts what is stored, e.g. after a `POST`. Needs an `Adapter` implementing `DocumentReader` (`MongoAdapter` does).
+- `Then document "<collection>" should contain an item with JSON:` + doc string — some stored item contains every field given, with that value; nested objects compare the same way and arrays element by element. `"<any>"` matches any present value, for generated ids and timestamps. Stored dates read as `{"$date": "…"}`.
+- `TestSuite.ResetCollections` lists collections cleared before every scenario besides the seeded ones — those the requests under test write.
 
 Seeded collections are cleared before the next scenario.
 

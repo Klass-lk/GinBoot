@@ -38,6 +38,13 @@ type JSONInserter interface {
 	InsertJSON(collection string, data []byte) error
 }
 
+// DocumentReader is the optional DBAdapter extension behind the steps that
+// check what a request stored. FindJSON returns the documents matching an
+// Extended JSON filter (empty for all) as plain JSON values.
+type DocumentReader interface {
+	FindJSON(collection string, filter []byte) ([]any, error)
+}
+
 // TestSuite runs Gherkin features against a Ginboot application, either
 // in-process through Router or over HTTP through BaseURL.
 type TestSuite struct {
@@ -80,6 +87,10 @@ type TestSuite struct {
 	// Steps registers application-specific steps alongside the built-in ones.
 	Steps func(ctx *godog.ScenarioContext)
 
+	// ResetCollections are cleared through Adapter before every scenario, in
+	// addition to the seeded ones — collections a request under test writes.
+	ResetCollections []string
+
 	collectionsToClear []string
 	principal          parity.Principal
 	header             http.Header
@@ -111,6 +122,11 @@ func (ts *TestSuite) InitializeTestSuite(ctx *godog.TestSuiteContext) {
 func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.BeforeScenario(func(sc *godog.Scenario) {
 		ts.clearSeeded()
+		if ts.Adapter != nil {
+			for _, name := range ts.ResetCollections {
+				_ = ts.Adapter.Clear(name)
+			}
+		}
 		ts.Resp = nil
 		ts.RespBody = nil
 		ts.RequestBody = nil
@@ -126,6 +142,9 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	// Data
 	ctx.Step(`^document "([^"]*)" has the following items$`, ts.documentHasTheFollowingItems)
 	ctx.Step(`^document "([^"]*)" has the following JSON:?$`, ts.documentHasTheFollowingJSON)
+	ctx.Step(`^document "([^"]*)" should have (\d+) items?$`, ts.documentShouldHaveItems)
+	ctx.Step(`^document "([^"]*)" should have (\d+) items? matching JSON:?$`, ts.documentShouldHaveItemsMatching)
+	ctx.Step(`^document "([^"]*)" should contain an item with JSON:?$`, ts.documentShouldContainAnItemWith)
 
 	// Who and how
 	ctx.Step(`^I am authenticated as "([^"]*)"$`, ts.iAmAuthenticatedAs)
@@ -182,6 +201,112 @@ func (ts *TestSuite) documentHasTheFollowingJSON(document string, doc *godog.Doc
 		return ins.InsertJSON(document, data)
 	}
 	return fmt.Errorf("no JSON seeder for document %s: register a JSONSeeder or set an Adapter that implements JSONInserter", document)
+}
+
+func (ts *TestSuite) reader() (DocumentReader, error) {
+	r, ok := ts.Adapter.(DocumentReader)
+	if !ok {
+		return nil, fmt.Errorf("checking stored documents needs an Adapter that implements DocumentReader")
+	}
+	return r, nil
+}
+
+func (ts *TestSuite) documentShouldHaveItems(document string, n int) error {
+	return ts.countMatching(document, "", n)
+}
+
+func (ts *TestSuite) documentShouldHaveItemsMatching(document string, n int, filter *godog.DocString) error {
+	return ts.countMatching(document, ts.substitute(filter.Content), n)
+}
+
+func (ts *TestSuite) countMatching(document, filter string, n int) error {
+	r, err := ts.reader()
+	if err != nil {
+		return err
+	}
+	docs, err := r.FindJSON(document, []byte(filter))
+	if err != nil {
+		return err
+	}
+	if len(docs) != n {
+		return fmt.Errorf("document %q has %d matching items, want %d", document, len(docs), n)
+	}
+	return nil
+}
+
+// documentShouldContainAnItemWith passes when some stored item contains the
+// given JSON: every field it names must be present with that value (nested
+// objects compare the same way, arrays element by element). The string
+// "<any>" matches any present value — ids and timestamps a request generates.
+func (ts *TestSuite) documentShouldContainAnItemWith(document string, doc *godog.DocString) error {
+	var want any
+	if err := json.Unmarshal([]byte(ts.substitute(doc.Content)), &want); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	r, err := ts.reader()
+	if err != nil {
+		return err
+	}
+	docs, err := r.FindJSON(document, nil)
+	if err != nil {
+		return err
+	}
+	closest, closestPath := "", ""
+	for _, d := range docs {
+		path, ok := containsJSON("$", want, d)
+		if ok {
+			return nil
+		}
+		if closestPath == "" || len(path) > len(closestPath) {
+			closestPath, closest = path, truncate(mustJSON(d), 400)
+		}
+	}
+	if len(docs) == 0 {
+		return fmt.Errorf("document %q is empty", document)
+	}
+	return fmt.Errorf("no item of %q contains the given JSON (%d items; closest differs at %s: %s)",
+		document, len(docs), closestPath, closest)
+}
+
+// containsJSON reports whether got contains want, and where it first does not.
+func containsJSON(path string, want, got any) (string, bool) {
+	if s, ok := want.(string); ok && s == "<any>" {
+		return path, got != nil
+	}
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return path, false
+		}
+		for k, wv := range w {
+			gv, present := g[k]
+			if !present {
+				return path + "." + k, false
+			}
+			if p, ok := containsJSON(path+"."+k, wv, gv); !ok {
+				return p, false
+			}
+		}
+		return path, true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(g) != len(w) {
+			return path, false
+		}
+		for i := range w {
+			if p, ok := containsJSON(fmt.Sprintf("%s[%d]", path, i), w[i], g[i]); !ok {
+				return p, false
+			}
+		}
+		return path, true
+	}
+	return path, reflect.DeepEqual(normaliseNumbers(want), normaliseNumbers(got))
+}
+
+func mustJSON(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 func (ts *TestSuite) clearSeeded() {
