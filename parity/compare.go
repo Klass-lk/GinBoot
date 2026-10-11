@@ -77,13 +77,14 @@ func (c *compiledRules) compare(ref, cand Response) []Difference {
 		}
 	}
 
-	rj, rok := decodeJSON(ref.Body)
-	cj, cok := decodeJSON(cand.Body)
+	refBody, candBody := c.decode(ref.Body), c.decode(cand.Body)
+	rj, rok := decodeJSON(refBody)
+	cj, cok := decodeJSON(candBody)
 	if rok && cok {
 		return c.walk("$", rj, cj, diffs)
 	}
-	if !bytes.Equal(bytes.TrimSpace(ref.Body), bytes.TrimSpace(cand.Body)) {
-		diffs = append(diffs, Difference{Path: "body", Kind: DiffBody, Ref: string(ref.Body), Cand: string(cand.Body)})
+	if !bytes.Equal(bytes.TrimSpace(refBody), bytes.TrimSpace(candBody)) {
+		diffs = append(diffs, Difference{Path: "body", Kind: DiffBody, Ref: string(refBody), Cand: string(candBody)})
 	}
 	return diffs
 }

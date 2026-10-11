@@ -79,6 +79,7 @@ cases:
 | `strictNumbers: true` | `5` and `5.0` differ (by default numbers compare by value) |
 | `headers: [names]` | headers that must match; default `Content-Type`, compared by media type |
 | `ignoreStatus: true` | skip the status-code check |
+| `decode: jwt` / `decode: "exec:<cmd>"` | decode both bodies before comparing: `jwt` compares a token's header and claims (`$.header`, `$.payload`; ignore `$.payload.iat` and `$.payload.exp`), `exec:` pipes the body through a command, e.g. `exec:pdftotext -layout - -` for PDFs |
 
 Everything else is a difference: status codes, `Content-Type`, field names, `null` vs absent, `[]` vs
 `null`, array order, value changes.
