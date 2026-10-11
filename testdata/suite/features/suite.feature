@@ -93,3 +93,26 @@ Feature: TestSuite steps
     Then both responses should match
     And document "notes" should match in both databases
     And document "notes" should have 1 item
+
+  Scenario: Raw bodies, requests without a body and empty responses
+    When I send a POST request to "/raw" with raw body:
+      """
+      {"broken":
+      """
+    Then the response "$.body" should be "{\"broken\":"
+    And the response "$.type" should be "application/json"
+    When I send a POST request to "/raw"
+    Then the response "$.body" should be ""
+    And the response "$.type" should be ""
+    When I send a DELETE request to "/raw"
+    Then the response status should be 200
+    And the response body should be empty
+    Given I set the request header "Content-Type" to "text/plain"
+    When I send a PUT request to "/raw" with raw body:
+      """
+      plain
+      """
+    Then the response "$.type" should be "text/plain"
+    When I send a DELETE request to "/raw"
+    Then the response status should be 200
+    And the response body should be empty

@@ -176,15 +176,18 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^I send a POST request to "([^"]*)" with body$`, ts.iSendAPOSTRequestToWithBody)
 	ctx.Step(`^I send a PUT request to "([^"]*)" with body$`, ts.iSendAPUTRequestToWithBody)
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" with JSON:?$`, ts.iSendARequestWithJSON)
-	ctx.Step(`^I send a (GET|DELETE|HEAD) request to "([^"]*)"$`, ts.iSendARequestTo)
+	ctx.Step(`^I send a (POST|PUT|PATCH|DELETE) request to "([^"]*)" with raw body:?$`, ts.iSendARequestWithRawBody)
+	ctx.Step(`^I send a (GET|DELETE|HEAD|POST|PUT|PATCH) request to "([^"]*)"$`, ts.iSendARequestTo)
 	ctx.Step(`^I send an authenticated GET request to "([^"]*)"$`, ts.iSendAnAuthenticatedGETRequestTo)
-	ctx.Step(`^I send a (GET|HEAD|DELETE) request to "([^"]*)" to both services$`, ts.iSendARequestToBothServices)
+	ctx.Step(`^I send a (GET|HEAD|DELETE|POST|PUT|PATCH) request to "([^"]*)" to both services$`, ts.iSendARequestToBothServices)
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with JSON:?$`, ts.iSendARequestWithJSONToBothServices)
+	ctx.Step(`^I send a (POST|PUT|PATCH|DELETE) request to "([^"]*)" to both services with raw body:?$`, ts.iSendARequestWithRawBodyToBothServices)
 	ctx.Step(`^document "([^"]*)" should match in both databases$`, ts.documentShouldMatchInBothDatabases)
 	ctx.Step(`^document "([^"]*)" should match in both databases ignoring:?$`, ts.documentShouldMatchInBothDatabasesIgnoring)
 
 	// Assertions
 	ctx.Step(`^the response status should be (\d+)$`, ts.theResponseStatusShouldBe)
+	ctx.Step(`^the response body should be empty$`, ts.theResponseBodyShouldBeEmpty)
 	ctx.Step(`^the response "([^"]*)" field is stored as "([^"]*)"$`, ts.theResponseFieldIsStoredAs)
 	ctx.Step(`^the response should contain an item with$`, ts.theResponseShouldContainAnItemWith)
 	ctx.Step(`^the response "([^"]*)" should be "((?:[^"\\]|\\.)*)"$`, ts.theResponsePathShouldBe)
@@ -437,6 +440,10 @@ func (ts *TestSuite) newRequest(base, method, path string, body []byte) (*http.R
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	} else {
+		// What a server hands a handler for a request without a body; the
+		// in-process Router would otherwise see a nil Body.
+		req.Body = http.NoBody
 	}
 	for k, vs := range ts.principal.Header {
 		for _, v := range vs {
@@ -460,6 +467,14 @@ func (ts *TestSuite) newRequest(base, method, path string, body []byte) (*http.R
 
 func (ts *TestSuite) iSendARequestTo(method, path string) error {
 	return ts.Send(method, path, nil)
+}
+
+// iSendARequestWithRawBody sends the doc string as it is, valid JSON or not
+// (an empty doc string sends an empty body), as application/json unless a
+// Content-Type header was set.
+func (ts *TestSuite) iSendARequestWithRawBody(method, path string, doc *godog.DocString) error {
+	ts.RequestBody = []byte(ts.substitute(doc.Content))
+	return ts.Send(method, path, ts.RequestBody)
 }
 
 func (ts *TestSuite) iSendAPOSTRequestToWithBody(path string, body *godog.Table) error {
@@ -508,7 +523,14 @@ func (ts *TestSuite) iSendARequestToBothServices(method, path string) error {
 }
 
 func (ts *TestSuite) iSendARequestWithJSONToBothServices(method, path string, doc *godog.DocString) error {
-	ts.header.Set("Content-Type", "application/json")
+	body := []byte(ts.substitute(doc.Content))
+	if !json.Valid(body) {
+		return fmt.Errorf("request body is not valid JSON")
+	}
+	return ts.sendToBoth(method, path, body)
+}
+
+func (ts *TestSuite) iSendARequestWithRawBodyToBothServices(method, path string, doc *godog.DocString) error {
 	return ts.sendToBoth(method, path, []byte(ts.substitute(doc.Content)))
 }
 
@@ -631,6 +653,16 @@ func diffError(msg string, diffs []parity.Difference) error {
 func (ts *TestSuite) requireResponse() error {
 	if ts.Resp == nil {
 		return errors.New("no response: send a request first")
+	}
+	return nil
+}
+
+func (ts *TestSuite) theResponseBodyShouldBeEmpty() error {
+	if ts.Resp == nil {
+		return errors.New("no response yet")
+	}
+	if len(ts.RespBody) != 0 {
+		return fmt.Errorf("expected an empty body, got %q", ts.RespBody)
 	}
 	return nil
 }

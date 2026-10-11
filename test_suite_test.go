@@ -3,6 +3,7 @@ package ginboot
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -129,6 +130,14 @@ func suiteRouter(db *memoryAdapter, generatedAt, version string) *gin.Engine {
 	r.GET("/whoami", func(c *gin.Context) {
 		device, _ := c.Cookie("device")
 		c.JSON(200, gin.H{"auth": c.GetHeader("Authorization"), "trace": c.GetHeader("X-Trace"), "device": device})
+	})
+	r.Any("/raw", func(c *gin.Context) {
+		b, _ := io.ReadAll(c.Request.Body)
+		if len(b) == 0 && c.Request.Method == http.MethodDelete {
+			c.Status(http.StatusOK)
+			return
+		}
+		c.JSON(200, gin.H{"body": string(b), "type": c.GetHeader("Content-Type")})
 	})
 	r.GET("/drift", func(c *gin.Context) { c.JSON(200, gin.H{"version": version, "same": true}) })
 	return r
