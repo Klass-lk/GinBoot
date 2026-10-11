@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cucumber/godog"
 	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot/parity"
 	"github.com/stretchr/testify/assert"
@@ -153,8 +154,12 @@ func TestSuiteFeatures(t *testing.T) {
 		Router:       suiteRouter(db, "today", "go"),
 		Adapter:      db,
 		ReferenceURL: reference.URL,
-		SnapshotDir:  snapshots,
-		Paths:        []string{"testdata/suite/features"},
+		// The reference here is an in-process test server over refDB, so it
+		// may receive writes.
+		ReferenceAdapter:     refDB,
+		ReferenceAllowWrites: true,
+		SnapshotDir:          snapshots,
+		Paths:                []string{"testdata/suite/features"},
 		// Written by POST /notes, which no scenario seeds.
 		ResetCollections: []string{"notes"},
 		Principals: map[string]parity.Principal{
@@ -190,6 +195,41 @@ func TestSuiteStepsFail(t *testing.T) {
 	t.Setenv("UPDATE_SNAPSHOTS", "")
 	assert.NoError(t, ts.theResponseShouldMatchSnapshot("created"), "a freshly written snapshot matches")
 }
+
+func TestSuiteSkipsParityWithoutReference(t *testing.T) {
+	db := &memoryAdapter{docs: map[string][]any{}}
+	TestFeatures(t, &TestSuite{Router: suiteRouter(db, "", ""), Adapter: db,
+		Paths: []string{"testdata/suite/parity-only"}})
+}
+
+func TestSuiteReferenceGuards(t *testing.T) {
+	refDB := &memoryAdapter{docs: map[string][]any{}}
+	reference := httptest.NewServer(suiteRouter(refDB, "", ""))
+	defer reference.Close()
+	db := &memoryAdapter{docs: map[string][]any{}}
+	ts := &TestSuite{Router: suiteRouter(db, "", ""), Adapter: db, ReferenceURL: reference.URL,
+		ReferenceAdapter: refDB, Storage: map[string]string{}, header: http.Header{}}
+
+	assert.ErrorContains(t, ts.sendToBoth("POST", "/notes", []byte(`{"text":"x"}`)), "ReferenceAllowWrites")
+	assert.Empty(t, refDB.docs["notes"], "a refused write reaches neither service")
+	assert.Empty(t, db.docs["notes"])
+	require.NoError(t, ts.sendToBoth("GET", "/notes", nil), "reads need no opt-in")
+
+	ts.ReferenceAllowWrites = true
+	require.NoError(t, ts.sendToBoth("POST", "/notes", []byte(`{"text":"x"}`)))
+	require.NoError(t, ts.compareDatabases("notes", parity.Rules{}))
+	db.docs["notes"] = append(db.docs["notes"], map[string]any{"id": "note-2", "text": "only here"})
+	assert.ErrorContains(t, ts.compareDatabases("notes", parity.Rules{}), "1 reference, 2 candidate")
+
+	ts.ReferenceAdapter = &memoryAdapter{docs: map[string][]any{}}
+	ts.DbSeeders = map[string]DBSeeder{"items": custom{}}
+	assert.ErrorContains(t, ts.documentHasTheFollowingItems("items", &godog.Table{}), "cannot mirror")
+}
+
+// custom is a DBSeeder the suite cannot mirror into a reference database.
+type custom struct{}
+
+func (custom) Seed(string, *godog.Table) error { return nil }
 
 func TestContainsJSON(t *testing.T) {
 	got := map[string]any{"a": 1.0, "b": map[string]any{"c": "x", "d": []any{1.0, 2.0}}, "e": nil}

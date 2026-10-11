@@ -75,6 +75,23 @@ type TestSuite struct {
 	ReferenceURL string
 	ParityRules  parity.Rules
 
+	// ReferenceAdapter is the reference service's database. When set, every
+	// seeding step and ResetCollections also apply to it, so both services
+	// start each scenario from the same data, and "should match in both
+	// databases" compares what each stored. Table rows are mirrored through
+	// a GenericDBSeeder's constructors; JSON seeding needs a JSONInserter.
+	ReferenceAdapter DBAdapter
+
+	// ReferenceAllowWrites lets the "to both services" steps send POST, PUT,
+	// PATCH and DELETE to the reference. Off by default: a reference is often
+	// a live service, and only a disposable one should receive writes.
+	ReferenceAllowWrites bool
+
+	// Tags filters scenarios (godog tag expression, e.g. "~@slow"). Without a
+	// ReferenceURL, TestFeatures adds "~@parity" so scenarios that need the
+	// reference are skipped.
+	Tags string
+
 	// SnapshotDir holds response snapshots; default "testdata/snapshots".
 	// Set UPDATE_SNAPSHOTS=1 to (re)write them. SnapshotRules applies when
 	// comparing against a snapshot.
@@ -122,9 +139,12 @@ func (ts *TestSuite) InitializeTestSuite(ctx *godog.TestSuiteContext) {
 func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.BeforeScenario(func(sc *godog.Scenario) {
 		ts.clearSeeded()
-		if ts.Adapter != nil {
+		for _, a := range []DBAdapter{ts.Adapter, ts.ReferenceAdapter} {
+			if a == nil {
+				continue
+			}
 			for _, name := range ts.ResetCollections {
-				_ = ts.Adapter.Clear(name)
+				_ = a.Clear(name)
 			}
 		}
 		ts.Resp = nil
@@ -158,7 +178,10 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" with JSON:?$`, ts.iSendARequestWithJSON)
 	ctx.Step(`^I send a (GET|DELETE|HEAD) request to "([^"]*)"$`, ts.iSendARequestTo)
 	ctx.Step(`^I send an authenticated GET request to "([^"]*)"$`, ts.iSendAnAuthenticatedGETRequestTo)
-	ctx.Step(`^I send a (GET|HEAD) request to "([^"]*)" to both services$`, ts.iSendARequestToBothServices)
+	ctx.Step(`^I send a (GET|HEAD|DELETE) request to "([^"]*)" to both services$`, ts.iSendARequestToBothServices)
+	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with JSON:?$`, ts.iSendARequestWithJSONToBothServices)
+	ctx.Step(`^document "([^"]*)" should match in both databases$`, ts.documentShouldMatchInBothDatabases)
+	ctx.Step(`^document "([^"]*)" should match in both databases ignoring:?$`, ts.documentShouldMatchInBothDatabasesIgnoring)
 
 	// Assertions
 	ctx.Step(`^the response status should be (\d+)$`, ts.theResponseStatusShouldBe)
@@ -188,12 +211,31 @@ func (ts *TestSuite) documentHasTheFollowingItems(document string, data *godog.T
 		return fmt.Errorf("no seeder registered for document %s", document)
 	}
 	ts.collectionsToClear = append(ts.collectionsToClear, document)
+	if ts.ReferenceAdapter != nil {
+		generic, ok := seeder.(*GenericDBSeeder)
+		if !ok {
+			return fmt.Errorf("the seeder for %s cannot mirror rows into the ReferenceAdapter: use a GenericDBSeeder or JSON seeding", document)
+		}
+		mirror := &GenericDBSeeder{Constructors: generic.Constructors, Adapter: ts.ReferenceAdapter}
+		if err := mirror.Seed(document, data); err != nil {
+			return fmt.Errorf("reference: %w", err)
+		}
+	}
 	return seeder.Seed(document, data)
 }
 
 func (ts *TestSuite) documentHasTheFollowingJSON(document string, doc *godog.DocString) error {
 	data := []byte(ts.substitute(doc.Content))
 	ts.collectionsToClear = append(ts.collectionsToClear, document)
+	if ts.ReferenceAdapter != nil {
+		ins, ok := ts.ReferenceAdapter.(JSONInserter)
+		if !ok {
+			return errors.New("the ReferenceAdapter must implement JSONInserter to mirror JSON seeding")
+		}
+		if err := ins.InsertJSON(document, data); err != nil {
+			return fmt.Errorf("reference: %w", err)
+		}
+	}
 	if s, ok := ts.DbSeeders[document].(JSONSeeder); ok {
 		return s.SeedJSON(document, data)
 	}
@@ -311,6 +353,9 @@ func mustJSON(v any) []byte {
 
 func (ts *TestSuite) clearSeeded() {
 	for _, name := range ts.collectionsToClear {
+		if ts.ReferenceAdapter != nil {
+			_ = ts.ReferenceAdapter.Clear(name)
+		}
 		if seeder, ok := ts.DbSeeders[name].(*GenericDBSeeder); ok && seeder.Adapter != nil {
 			_ = seeder.Adapter.Clear(name)
 		} else if ts.Adapter != nil {
@@ -459,10 +504,22 @@ func (ts *TestSuite) theReferenceServiceIsAt(u string) error {
 }
 
 func (ts *TestSuite) iSendARequestToBothServices(method, path string) error {
+	return ts.sendToBoth(method, path, nil)
+}
+
+func (ts *TestSuite) iSendARequestWithJSONToBothServices(method, path string, doc *godog.DocString) error {
+	ts.header.Set("Content-Type", "application/json")
+	return ts.sendToBoth(method, path, []byte(ts.substitute(doc.Content)))
+}
+
+func (ts *TestSuite) sendToBoth(method, path string, body []byte) error {
 	if ts.ReferenceURL == "" {
 		return errors.New("no reference service: set ReferenceURL or use \"the reference service is at\"")
 	}
-	req, err := ts.newRequest(strings.TrimRight(ts.ReferenceURL, "/"), method, path, nil)
+	if method != http.MethodGet && method != http.MethodHead && !ts.ReferenceAllowWrites {
+		return fmt.Errorf("refusing to send %s to the reference: set ReferenceAllowWrites for a disposable reference", method)
+	}
+	req, err := ts.newRequest(strings.TrimRight(ts.ReferenceURL, "/"), method, path, body)
 	if err != nil {
 		return err
 	}
@@ -471,12 +528,56 @@ func (ts *TestSuite) iSendARequestToBothServices(method, path string) error {
 		return fmt.Errorf("reference: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	refBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("reference: %w", err)
 	}
-	ts.refResp = &parity.Response{Status: resp.StatusCode, Header: resp.Header, Body: body}
-	return ts.Send(method, path, nil)
+	ts.refResp = &parity.Response{Status: resp.StatusCode, Header: resp.Header, Body: refBody}
+	return ts.Send(method, path, body)
+}
+
+func (ts *TestSuite) documentShouldMatchInBothDatabases(document string) error {
+	return ts.compareDatabases(document, parity.Rules{})
+}
+
+func (ts *TestSuite) documentShouldMatchInBothDatabasesIgnoring(document string, paths *godog.Table) error {
+	extra := parity.Rules{}
+	for _, row := range paths.Rows {
+		if len(row.Cells) > 0 {
+			extra.Ignore = append(extra.Ignore, row.Cells[0].Value)
+		}
+	}
+	return ts.compareDatabases(document, extra)
+}
+
+// compareDatabases compares a collection's documents in the two databases
+// as multisets (order is the database's, not the service's), under
+// ParityRules plus extra; paths are rooted at the array, e.g. "$[*].createdAt".
+func (ts *TestSuite) compareDatabases(document string, extra parity.Rules) error {
+	cand, ok1 := ts.Adapter.(DocumentReader)
+	ref, ok2 := ts.ReferenceAdapter.(DocumentReader)
+	if !ok1 || !ok2 {
+		return errors.New("comparing databases needs an Adapter and a ReferenceAdapter that implement DocumentReader")
+	}
+	refDocs, err := ref.FindJSON(document, nil)
+	if err != nil {
+		return fmt.Errorf("reference: %w", err)
+	}
+	candDocs, err := cand.FindJSON(document, nil)
+	if err != nil {
+		return err
+	}
+	rules := ts.ParityRules.Merge(extra).Merge(parity.Rules{Unordered: map[string]string{"$": ""}})
+	diffs, err := parity.Compare(jsonResponse(refDocs), jsonResponse(candDocs), rules)
+	if err != nil {
+		return err
+	}
+	return diffError(fmt.Sprintf("document %q differs between the databases (%d reference, %d candidate items)",
+		document, len(refDocs), len(candDocs)), diffs)
+}
+
+func jsonResponse(v any) parity.Response {
+	return parity.Response{Status: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: mustJSON(v)}
 }
 
 func (ts *TestSuite) bothResponsesShouldMatch() error {
@@ -993,10 +1094,18 @@ func TestFeatures(t *testing.T, suite *TestSuite) {
 	if len(paths) == 0 {
 		paths = []string{"features"}
 	}
+	tags := suite.Tags
+	if suite.ReferenceURL == "" {
+		if tags != "" {
+			tags += " && "
+		}
+		tags += "~@parity"
+	}
 	opts := godog.Options{
 		Format:    "pretty",
 		Output:    colors.Colored(&TestLogger{T: t}),
 		Paths:     paths,
+		Tags:      tags,
 		Strict:    true,
 		Randomize: 0,
 	}

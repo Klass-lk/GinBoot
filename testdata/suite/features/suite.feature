@@ -83,3 +83,13 @@ Feature: TestSuite steps
 
   Scenario: Collections written by requests are reset between scenarios
     Then document "notes" should have 0 items
+
+  @parity
+  Scenario: Comparing a write in both services and both databases
+    When I send a POST request to "/notes" to both services with JSON:
+      """
+      {"text": "same everywhere"}
+      """
+    Then both responses should match
+    And document "notes" should match in both databases
+    And document "notes" should have 1 item

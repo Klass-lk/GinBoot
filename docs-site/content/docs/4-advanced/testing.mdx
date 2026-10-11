@@ -123,8 +123,31 @@ Seeded collections are cleared before the next scenario.
 **Comparing with another service** — see [Comparing two services](/docs/4-advanced/parity)
 
 - `Given the reference service is at "<url>"` (or set `ReferenceURL`)
-- `When I send a GET|HEAD request to "<path>" to both services`
+- `When I send a GET|HEAD|DELETE request to "<path>" to both services`
+- `When I send a POST|PUT|PATCH request to "<path>" to both services with JSON:` + doc string
 - `Then both responses should match` / `Then both responses should match ignoring:` + table of paths
+- `Then document "<collection>" should match in both databases` / `... ignoring:` + table of paths rooted at the array (`$[*].createdAt`) — the collection's items in the two databases, compared as multisets under `ParityRules`.
+
+Writes are refused unless `ReferenceAllowWrites` is set: point it only at a disposable reference
+(a local copy of the old service over its own test database), never a shared one. Set
+`ReferenceAdapter` to that database so every seeding step and `ResetCollections` apply to both, and
+each scenario starts from the same data. Table rows are mirrored through a `GenericDBSeeder`'s
+constructors; JSON seeding needs an adapter that implements `JSONInserter`.
+
+Tag scenarios that need the reference `@parity`. Without a `ReferenceURL`, `TestFeatures` skips them,
+so the same feature files run as plain tests of the new service. `Tags` adds a godog tag filter of
+your own.
+
+```go
+suite := &ginboot.TestSuite{
+	Router:               router,
+	Adapter:              &mongo.MongoAdapter{DB: db},
+	ReferenceURL:         os.Getenv("REFERENCE_URL"), // empty: @parity scenarios are skipped
+	ReferenceAdapter:     &mongo.MongoAdapter{DB: referenceDB},
+	ReferenceAllowWrites: true, // a local, disposable reference only
+	ResetCollections:     []string{"announcements"},
+}
+```
 
 ## Your own steps
 
