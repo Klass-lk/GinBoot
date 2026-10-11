@@ -126,8 +126,22 @@ func (c *Context) RecordError(err error) {
 	span.SetStatus(codes.Error, err.Error())
 }
 
+// ResponseError is an error that writes its own response, for applications
+// whose error bodies follow another framework's shape. SendError hands such
+// an error the request instead of writing its default body.
+type ResponseError interface {
+	error
+	WriteResponse(c *gin.Context)
+}
+
 func (c *Context) SendError(err error) {
 	c.RecordError(err)
+
+	var custom ResponseError
+	if errors.As(err, &custom) {
+		custom.WriteResponse(c.Context)
+		return
+	}
 
 	// A failure from a service we called is ours, not our caller's: answering
 	// 404 because user-service answered 404 makes an upstream outage look like
