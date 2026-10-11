@@ -52,3 +52,36 @@ func TestDecodeRejectsUnknown(t *testing.T) {
 	_, err := Compare(textResp("a"), textResp("a"), Rules{Decode: "base64"})
 	assert.Error(t, err)
 }
+
+func TestDecodeJWTRefusesMalformedTokens(t *testing.T) {
+	enc := base64.RawURLEncoding.EncodeToString
+	for name, body := range map[string]string{
+		"two parts":         "a.b",
+		"header not base64": "!!!." + enc([]byte(`{}`)) + ".sig",
+		"payload not JSON":  enc([]byte(`{}`)) + "." + enc([]byte(`not json`)) + ".sig",
+		"header not JSON":   enc([]byte(`{`)) + "." + enc([]byte(`{}`)) + ".sig",
+	} {
+		_, ok := decodeJWT([]byte(body))
+		assert.False(t, ok, name)
+	}
+	out, ok := decodeJWT([]byte(" " + jwtOf(`{"alg":"HS512"}`, `{"sub":"u1"}`) + "\n"))
+	require.True(t, ok, "surrounding space is trimmed")
+	assert.JSONEq(t, `{"header":{"alg":"HS512"},"payload":{"sub":"u1"}}`, string(out))
+}
+
+func TestMergeDecode(t *testing.T) {
+	assert.Equal(t, "jwt", Rules{Decode: "jwt"}.Merge(Rules{}).Decode, "kept when other has none")
+	assert.Equal(t, "exec:cat", Rules{Decode: "jwt"}.Merge(Rules{Decode: "exec:cat"}).Decode, "other's wins")
+}
+
+func TestCompileRejectsBadPatterns(t *testing.T) {
+	for name, rules := range map[string]Rules{
+		"ignore":        {Ignore: []string{"no-dollar"}},
+		"nullIsMissing": {NullIsMissing: []string{"no-dollar"}},
+		"ignoreQuery":   {IgnoreQuery: []string{"no-dollar"}},
+		"unordered":     {Unordered: map[string]string{"no-dollar": ""}},
+	} {
+		_, err := rules.compile()
+		assert.Error(t, err, name)
+	}
+}

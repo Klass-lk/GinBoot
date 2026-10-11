@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	messages "github.com/cucumber/messages-go/v16"
 	"github.com/gin-gonic/gin"
 	"github.com/klass-lk/ginboot/parity"
 	"github.com/stretchr/testify/assert"
@@ -264,4 +266,140 @@ func TestContainsJSON(t *testing.T) {
 			assert.Equal(t, tc.path, path, tc.want)
 		}
 	}
+}
+
+// failingAdapter fails every call; plainAdapter only inserts and clears, so
+// the optional JSONInserter and DocumentReader steps have nothing to use.
+type failingAdapter struct{}
+
+func (failingAdapter) Insert(string, any) error               { return errors.New("insert failed") }
+func (failingAdapter) Clear(string) error                     { return errors.New("clear failed") }
+func (failingAdapter) InsertJSON(string, []byte) error        { return errors.New("insert failed") }
+func (failingAdapter) FindJSON(string, []byte) ([]any, error) { return nil, errors.New("find failed") }
+
+type plainAdapter struct{}
+
+func (plainAdapter) Insert(string, any) error { return nil }
+func (plainAdapter) Clear(string) error       { return nil }
+
+func doc(s string) *godog.DocString { return &godog.DocString{Content: s} }
+
+func table(rows ...[]string) *godog.Table {
+	t := &godog.Table{}
+	for _, r := range rows {
+		row := &messages.PickleTableRow{}
+		for _, c := range r {
+			row.Cells = append(row.Cells, &messages.PickleTableCell{Value: c})
+		}
+		t.Rows = append(t.Rows, row)
+	}
+	return t
+}
+
+func TestSuiteDataStepErrors(t *testing.T) {
+	mem := func() *memoryAdapter { return &memoryAdapter{docs: map[string][]any{}} }
+	items := table([]string{"id", "name"}, []string{"1", "Chalk"})
+
+	ts := &TestSuite{Storage: map[string]string{}}
+	assert.ErrorContains(t, ts.documentHasTheFollowingItems("items", items), "no seeder registered")
+
+	// A reference without the constructor for the rows.
+	seeder := NewGenericDBSeeder(mem())
+	ts.DbSeeders = map[string]DBSeeder{"items": seeder}
+	ts.ReferenceAdapter = mem()
+	assert.ErrorContains(t, ts.documentHasTheFollowingItems("items", items), "reference:")
+
+	// JSON seeding: the reference must insert JSON, and its errors surface.
+	ts.ReferenceAdapter = plainAdapter{}
+	assert.ErrorContains(t, ts.documentHasTheFollowingJSON("notes", doc(`{}`)), "JSONInserter")
+	ts.ReferenceAdapter = failingAdapter{}
+	assert.ErrorContains(t, ts.documentHasTheFollowingJSON("notes", doc(`{}`)), "reference: insert failed")
+
+	// Without a reference: a registered JSONSeeder, then the Adapter, then nothing.
+	ts.ReferenceAdapter = nil
+	seeded := mem()
+	ts.DbSeeders = map[string]DBSeeder{"notes": NewGenericDBSeeder(seeded)}
+	require.NoError(t, ts.documentHasTheFollowingJSON("notes", doc(`{"_id":"n1"}`)))
+	assert.Len(t, seeded.docs["notes"], 1)
+	assert.ErrorContains(t, NewGenericDBSeeder(plainAdapter{}).SeedJSON("notes", []byte(`{}`)), "cannot insert JSON")
+	ts.DbSeeders, ts.Adapter = nil, plainAdapter{}
+	assert.ErrorContains(t, ts.documentHasTheFollowingJSON("notes", doc(`{}`)), "no JSON seeder")
+
+	// Reading stored documents.
+	assert.ErrorContains(t, ts.documentShouldHaveItems("notes", 0), "DocumentReader")
+	assert.ErrorContains(t, ts.documentShouldContainAnItemWith("notes", doc(`{}`)), "DocumentReader")
+	ts.Adapter = failingAdapter{}
+	assert.ErrorContains(t, ts.documentShouldHaveItems("notes", 0), "find failed")
+	assert.ErrorContains(t, ts.documentShouldContainAnItemWith("notes", doc(`{}`)), "find failed")
+	assert.ErrorContains(t, ts.documentShouldContainAnItemWith("notes", doc(`{`)), "invalid JSON")
+	stored := mem()
+	ts.Adapter = stored
+	assert.ErrorContains(t, ts.documentShouldContainAnItemWith("notes", doc(`{"a":1}`)), "is empty")
+	stored.docs["notes"] = []any{map[string]any{"a": 2.0}, map[string]any{"a": 3.0, "b": "x"}}
+	assert.ErrorContains(t, ts.documentShouldHaveItems("notes", 1), "has 2 matching items, want 1")
+	assert.ErrorContains(t, ts.documentShouldContainAnItemWith("notes", doc(`{"a":1}`)), "no item of \"notes\" contains")
+
+	// clearData tolerates adapters that fail to clear.
+	ts.Adapter, ts.ReferenceAdapter, ts.ResetCollections = failingAdapter{}, failingAdapter{}, []string{"notes"}
+	ts.collectionsToClear = []string{"notes"}
+	ts.clearData()
+	assert.Empty(t, ts.collectionsToClear)
+}
+
+func TestSuiteReferenceStepErrors(t *testing.T) {
+	refDB := &memoryAdapter{docs: map[string][]any{}}
+	reference := httptest.NewServer(suiteRouter(refDB, "", ""))
+	defer reference.Close()
+	db := &memoryAdapter{docs: map[string][]any{}}
+	ts := &TestSuite{Router: suiteRouter(db, "", ""), Adapter: db, Storage: map[string]string{}, header: http.Header{}}
+
+	assert.ErrorContains(t, ts.iSendARequestToBothServices("GET", "/notes"), "no reference service")
+	ts.ReferenceURL, ts.ReferenceAdapter, ts.ReferenceAllowWrites = reference.URL, refDB, true
+	assert.ErrorContains(t, ts.iSendARequestWithJSONToBothServices("POST", "/notes", doc(`{`)), "not valid JSON")
+	require.NoError(t, ts.iSendARequestWithRawBodyToBothServices("POST", "/notes", doc(`{"text":"raw"}`)))
+	require.NoError(t, ts.bothResponsesShouldMatch())
+	require.NoError(t, ts.documentShouldMatchInBothDatabasesIgnoring("notes", table([]string{"$[*].id"}, []string{})))
+
+	// Comparing databases needs readers on both sides, and their errors surface.
+	ts.ReferenceAdapter = plainAdapter{}
+	assert.ErrorContains(t, ts.documentShouldMatchInBothDatabases("notes"), "DocumentReader")
+	ts.ReferenceAdapter = failingAdapter{}
+	assert.ErrorContains(t, ts.documentShouldMatchInBothDatabases("notes"), "reference: find failed")
+	ts.Adapter, ts.ReferenceAdapter = failingAdapter{}, refDB
+	assert.ErrorContains(t, ts.documentShouldMatchInBothDatabases("notes"), "find failed")
+	ts.ParityRules = parity.Rules{Ignore: []string{"no-dollar"}}
+	ts.Adapter = db
+	assert.Error(t, ts.documentShouldMatchInBothDatabases("notes"), "a bad rule is reported")
+	ts.ParityRules = parity.Rules{}
+
+	// A reference that cannot be reached.
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	ts.ReferenceURL = closed.URL
+	assert.ErrorContains(t, ts.iSendARequestToBothServices("GET", "/notes"), "reference:")
+
+	// The empty-body assertion.
+	ts = &TestSuite{Router: suiteRouter(db, "", ""), Storage: map[string]string{}, header: http.Header{}}
+	assert.ErrorContains(t, ts.theResponseBodyShouldBeEmpty(), "no response yet")
+	require.NoError(t, ts.Send("GET", "/notes", nil))
+	assert.ErrorContains(t, ts.theResponseBodyShouldBeEmpty(), "expected an empty body")
+}
+
+func TestSuiteSmallBranches(t *testing.T) {
+	// Tags combine with the @parity filter when there is no reference.
+	db := &memoryAdapter{docs: map[string][]any{}}
+	TestFeatures(t, &TestSuite{Router: suiteRouter(db, "", ""), Adapter: db,
+		Paths: []string{"testdata/suite/parity-only"}, Tags: "@parity"})
+
+	// clearData skips a missing adapter.
+	ts := &TestSuite{ResetCollections: []string{"notes"}, Adapter: db}
+	db.docs["notes"] = []any{map[string]any{}}
+	ts.clearData()
+	assert.Empty(t, db.docs["notes"])
+
+	// A request that cannot be built is reported, for either service.
+	ts = &TestSuite{Router: suiteRouter(db, "", ""), Storage: map[string]string{}, header: http.Header{},
+		ReferenceURL: "http://127.0.0.1:1"}
+	assert.Error(t, ts.Send("BAD METHOD", "/notes", nil))
+	assert.Error(t, ts.iSendARequestToBothServices("GET", "/%zz"))
 }
