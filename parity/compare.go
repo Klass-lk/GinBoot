@@ -151,7 +151,9 @@ func (c *compiledRules) walk(path string, ref, cand any, diffs []Difference) []D
 }
 
 func (c *compiledRules) walkObject(path string, ref, cand map[string]any, diffs []Difference) []Difference {
-	keys := make([]string, 0, len(ref)+len(cand))
+	// Sized for ref's keys; append grows it for keys only cand has. (A summed
+	// capacity is what CodeQL's allocation-size-overflow check flags.)
+	keys := make([]string, 0, len(ref))
 	for k := range ref {
 		keys = append(keys, k)
 	}
