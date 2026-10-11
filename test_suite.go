@@ -207,6 +207,7 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the reference service is at "([^"]*)"$`, ts.theReferenceServiceIsAt)
 	ctx.Step(`^both responses should match$`, ts.bothResponsesShouldMatch)
 	ctx.Step(`^both responses should match ignoring:?$`, ts.bothResponsesShouldMatchIgnoring)
+	ctx.Step(`^both responses should match with lists in any order:?$`, ts.bothResponsesShouldMatchUnordered)
 
 	if ts.Steps != nil {
 		ts.Steps(ctx)
@@ -646,6 +647,25 @@ func (ts *TestSuite) bothResponsesShouldMatchIgnoring(paths *godog.Table) error 
 		}
 	}
 	return ts.compareWithReference(rules.Merge(extra))
+}
+
+// bothResponsesShouldMatchUnordered compares with the listed arrays as
+// multisets, for services that build a list in no particular order. A row's
+// second cell, when given, is the key that pairs elements (see
+// parity.Rules.Unordered); otherwise whole elements are compared.
+func (ts *TestSuite) bothResponsesShouldMatchUnordered(paths *godog.Table) error {
+	extra := parity.Rules{Unordered: map[string]string{}}
+	for _, row := range paths.Rows {
+		if len(row.Cells) == 0 {
+			continue
+		}
+		key := ""
+		if len(row.Cells) > 1 {
+			key = row.Cells[1].Value
+		}
+		extra.Unordered[row.Cells[0].Value] = key
+	}
+	return ts.compareWithReference(ts.ParityRules.Merge(extra))
 }
 
 func (ts *TestSuite) compareWithReference(rules parity.Rules) error {

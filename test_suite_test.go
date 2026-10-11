@@ -420,3 +420,14 @@ func TestCompareDatabasesSettles(t *testing.T) {
 	ref.docs["log"] = append(ref.docs["log"], map[string]any{"b": 2.0})
 	assert.Error(t, ts.compareDatabases("log", parity.Rules{}), "without settling, compared once")
 }
+
+func TestBothResponsesMatchWithListsInAnyOrder(t *testing.T) {
+	ts := &TestSuite{}
+	ts.refResp = &parity.Response{Status: 200, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: []byte(`{"students":[{"id":"a","n":1},{"id":"b","n":2}],"tags":["x","y"]}`)}
+	ts.Resp = &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}}
+	ts.RespBody = []byte(`{"students":[{"id":"b","n":2},{"id":"a","n":1}],"tags":["y","x"]}`)
+	assert.Error(t, ts.bothResponsesShouldMatch(), "order matters by default")
+	assert.NoError(t, ts.bothResponsesShouldMatchUnordered(table([]string{"$.students", "id"}, []string{"$.tags"})))
+	assert.Error(t, ts.bothResponsesShouldMatchUnordered(table([]string{"$.tags"})), "only the listed paths")
+}
