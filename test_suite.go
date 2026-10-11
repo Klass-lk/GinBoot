@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -137,16 +138,15 @@ func (ts *TestSuite) InitializeTestSuite(ctx *godog.TestSuiteContext) {
 }
 
 func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
+	// Data is cleared before each scenario and again after it, so the last
+	// scenario's data does not outlive the run: a database that persists
+	// between runs starts the next one clean.
+	ctx.After(func(c context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		ts.clearData()
+		return c, nil
+	})
 	ctx.BeforeScenario(func(sc *godog.Scenario) {
-		ts.clearSeeded()
-		for _, a := range []DBAdapter{ts.Adapter, ts.ReferenceAdapter} {
-			if a == nil {
-				continue
-			}
-			for _, name := range ts.ResetCollections {
-				_ = a.Clear(name)
-			}
-		}
+		ts.clearData()
 		ts.Resp = nil
 		ts.RespBody = nil
 		ts.RequestBody = nil
@@ -352,6 +352,19 @@ func containsJSON(path string, want, got any) (string, bool) {
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// clearData clears the seeded collections and ResetCollections.
+func (ts *TestSuite) clearData() {
+	ts.clearSeeded()
+	for _, a := range []DBAdapter{ts.Adapter, ts.ReferenceAdapter} {
+		if a == nil {
+			continue
+		}
+		for _, name := range ts.ResetCollections {
+			_ = a.Clear(name)
+		}
+	}
 }
 
 func (ts *TestSuite) clearSeeded() {
