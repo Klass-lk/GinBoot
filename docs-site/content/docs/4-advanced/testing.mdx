@@ -90,6 +90,9 @@ Paths in assertions use the JSONPath subset described in
 
 - `Given document "<collection>" has the following items` + table — fills structs through a registered `GenericDBSeeder`. Strings, numbers and booleans are read directly; other field types are parsed as JSON.
 - `Given document "<collection>" has the following JSON:` + doc string — one document or an array, inserted as-is. With `db/mongo`'s `MongoAdapter` this is MongoDB Extended JSON, so `{"$date": …}` and `{"$oid": …}` work.
+- `Then document "<collection>" should have <n> items` / `... should have <n> items matching JSON:` + an Extended JSON filter — counts what is stored, e.g. after a `POST`. Needs an `Adapter` implementing `DocumentReader` (`MongoAdapter` does).
+- `Then document "<collection>" should contain an item with JSON:` + doc string — some stored item contains every field given, with that value; nested objects compare the same way and arrays element by element. `"<any>"` matches any present value, for generated ids and timestamps. Stored dates read as `{"$date": "…"}`.
+- `TestSuite.ResetCollections` lists collections cleared before every scenario besides the seeded ones — those the requests under test write.
 
 Seeded collections are cleared before the next scenario.
 
@@ -101,14 +104,16 @@ Seeded collections are cleared before the next scenario.
 
 **Requests**
 
-- `When I send a GET|DELETE|HEAD request to "<path>"`
+- `When I send a GET|DELETE|HEAD|POST|PUT|PATCH request to "<path>"` — no body
 - `When I send a POST|PUT|PATCH request to "<path>" with JSON:` + doc string
+- `When I send a POST|PUT|PATCH|DELETE request to "<path>" with raw body:` + doc string — sent as written, valid JSON or not (an empty doc string sends an empty body), as `application/json` unless a `Content-Type` header was set; for testing how bad bodies are refused
 - `When I send a POST|PUT request to "<path>" with body` + one-row table
 - `When I send an authenticated GET request to "<path>"` — uses the token stored as `authToken`
 
 **Assertions**
 
 - `Then the response status should be <code>`
+- `Then the response body should be empty`
 - `Then the response "<path>" should be "<value>"` — scalars compare as text; arrays and objects compare as JSON (`"[\"a\",\"b\"]"`)
 - `Then the response "<path>" should be null` / `should exist` / `should not exist`
 - `Then the response "<path>" should have <n> items`
@@ -120,8 +125,32 @@ Seeded collections are cleared before the next scenario.
 **Comparing with another service** — see [Comparing two services](/docs/4-advanced/parity)
 
 - `Given the reference service is at "<url>"` (or set `ReferenceURL`)
-- `When I send a GET|HEAD request to "<path>" to both services`
+- `When I send a GET|HEAD|DELETE|POST|PUT|PATCH request to "<path>" to both services` — no body
+- `When I send a POST|PUT|PATCH request to "<path>" to both services with JSON:` + doc string
+- `When I send a POST|PUT|PATCH|DELETE request to "<path>" to both services with raw body:` + doc string
 - `Then both responses should match` / `Then both responses should match ignoring:` + table of paths
+- `Then document "<collection>" should match in both databases` / `... ignoring:` + table of paths rooted at the array (`$[*].createdAt`) — the collection's items in the two databases, compared as multisets under `ParityRules`.
+
+Writes are refused unless `ReferenceAllowWrites` is set: point it only at a disposable reference
+(a local copy of the old service over its own test database), never a shared one. Set
+`ReferenceAdapter` to that database so every seeding step and `ResetCollections` apply to both, and
+each scenario starts from the same data. Table rows are mirrored through a `GenericDBSeeder`'s
+constructors; JSON seeding needs an adapter that implements `JSONInserter`.
+
+Tag scenarios that need the reference `@parity`. Without a `ReferenceURL`, `TestFeatures` skips them,
+so the same feature files run as plain tests of the new service. `Tags` adds a godog tag filter of
+your own.
+
+```go
+suite := &ginboot.TestSuite{
+	Router:               router,
+	Adapter:              &mongo.MongoAdapter{DB: db},
+	ReferenceURL:         os.Getenv("REFERENCE_URL"), // empty: @parity scenarios are skipped
+	ReferenceAdapter:     &mongo.MongoAdapter{DB: referenceDB},
+	ReferenceAllowWrites: true, // a local, disposable reference only
+	ResetCollections:     []string{"announcements"},
+}
+```
 
 ## Your own steps
 

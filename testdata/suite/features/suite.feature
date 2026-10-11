@@ -59,3 +59,60 @@ Feature: TestSuite steps
   Scenario: Snapshots
     When I send a GET request to "/items/1"
     Then the response should match snapshot "item-1"
+
+  Scenario: Checking what a request stored
+    Then document "notes" should have 0 items
+    When I send a POST request to "/notes" with JSON:
+      """
+      {"text": "hello", "tags": ["a", "b"], "meta": {"by": "admin", "n": 2}}
+      """
+    Then the response status should be 201
+    And document "notes" should have 1 item
+    And document "notes" should contain an item with JSON:
+      """
+      {"id": "<any>", "text": "hello", "tags": ["a", "b"], "meta": {"n": 2.0}}
+      """
+    And document "notes" should have 1 item matching JSON:
+      """
+      {"text": "hello"}
+      """
+    And document "notes" should have 0 items matching JSON:
+      """
+      {"text": "other"}
+      """
+
+  Scenario: Collections written by requests are reset between scenarios
+    Then document "notes" should have 0 items
+
+  @parity
+  Scenario: Comparing a write in both services and both databases
+    When I send a POST request to "/notes" to both services with JSON:
+      """
+      {"text": "same everywhere"}
+      """
+    Then both responses should match
+    And document "notes" should match in both databases
+    And document "notes" should have 1 item
+
+  Scenario: Raw bodies, requests without a body and empty responses
+    When I send a POST request to "/raw" with raw body:
+      """
+      {"broken":
+      """
+    Then the response "$.body" should be "{\"broken\":"
+    And the response "$.type" should be "application/json"
+    When I send a POST request to "/raw"
+    Then the response "$.body" should be ""
+    And the response "$.type" should be ""
+    When I send a DELETE request to "/raw"
+    Then the response status should be 200
+    And the response body should be empty
+    Given I set the request header "Content-Type" to "text/plain"
+    When I send a PUT request to "/raw" with raw body:
+      """
+      plain
+      """
+    Then the response "$.type" should be "text/plain"
+    When I send a DELETE request to "/raw"
+    Then the response status should be 200
+    And the response body should be empty

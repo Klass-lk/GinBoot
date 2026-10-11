@@ -77,13 +77,14 @@ func (c *compiledRules) compare(ref, cand Response) []Difference {
 		}
 	}
 
-	rj, rok := decodeJSON(ref.Body)
-	cj, cok := decodeJSON(cand.Body)
+	refBody, candBody := c.decode(ref.Body), c.decode(cand.Body)
+	rj, rok := decodeJSON(refBody)
+	cj, cok := decodeJSON(candBody)
 	if rok && cok {
 		return c.walk("$", rj, cj, diffs)
 	}
-	if !bytes.Equal(bytes.TrimSpace(ref.Body), bytes.TrimSpace(cand.Body)) {
-		diffs = append(diffs, Difference{Path: "body", Kind: DiffBody, Ref: string(ref.Body), Cand: string(cand.Body)})
+	if !bytes.Equal(bytes.TrimSpace(refBody), bytes.TrimSpace(candBody)) {
+		diffs = append(diffs, Difference{Path: "body", Kind: DiffBody, Ref: string(refBody), Cand: string(candBody)})
 	}
 	return diffs
 }
@@ -150,7 +151,9 @@ func (c *compiledRules) walk(path string, ref, cand any, diffs []Difference) []D
 }
 
 func (c *compiledRules) walkObject(path string, ref, cand map[string]any, diffs []Difference) []Difference {
-	keys := make([]string, 0, len(ref)+len(cand))
+	// Sized for ref's keys; append grows it for keys only cand has. (A summed
+	// capacity is what CodeQL's allocation-size-overflow check flags.)
+	keys := make([]string, 0, len(ref))
 	for k := range ref {
 		keys = append(keys, k)
 	}

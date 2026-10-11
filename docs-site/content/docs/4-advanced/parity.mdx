@@ -79,6 +79,7 @@ cases:
 | `strictNumbers: true` | `5` and `5.0` differ (by default numbers compare by value) |
 | `headers: [names]` | headers that must match; default `Content-Type`, compared by media type |
 | `ignoreStatus: true` | skip the status-code check |
+| `decode: jwt` / `decode: "exec:<cmd>"` | decode both bodies before comparing: `jwt` compares a token's header and claims (`$.header`, `$.payload`; ignore `$.payload.iat` and `$.payload.exp`), `exec:` pipes the body through a command, e.g. `exec:pdftotext -layout - -` for PDFs |
 
 Everything else is a difference: status codes, `Content-Type`, field names, `null` vs absent, `[]` vs
 `null`, array order, value changes.
@@ -128,3 +129,17 @@ opts := options.Client().ApplyURI(uri).SetMonitor(dbMongo.ReadOnlyMonitor(nil))
 
 A refused command panics with a `ReadOnlyViolation`; Ginboot's recovery turns it into a `500` for that
 request, which then shows up as a difference.
+
+### A client locked to one database
+
+When the only credentials you have reach more than the database you may use — a test database on a
+production cluster, say — attach `DatabaseLockMonitor` and every command addressed to another database is
+refused before it is sent, reads included, as are aggregations whose `$out` or `$merge` targets another
+database. Driver housekeeping on `admin` (handshakes, `ping`, `endSessions`) still goes through:
+
+```go
+opts := options.Client().ApplyURI(uri).SetMonitor(dbMongo.DatabaseLockMonitor([]string{"app_test"}, nil))
+```
+
+A refusal panics with a `DatabaseLockViolation`. The monitors chain, so
+`DatabaseLockMonitor(dbs, dbMongo.ReadOnlyMonitor(nil))` applies both.

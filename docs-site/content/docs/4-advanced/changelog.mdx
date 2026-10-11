@@ -20,6 +20,10 @@ All notable changes, new features, architectural improvements, and deprecations 
 
 ### 🧪 Testing & migration
 
+#### 0. `DatabaseLockMonitor` and the parity `decode` rule
+- `db/mongo.DatabaseLockMonitor` locks a client to named databases: commands for any other database, and `$out`/`$merge` into one, are refused before they are sent. See [A client locked to one database](/docs/4-advanced/parity#a-client-locked-to-one-database).
+- Parity `decode: jwt` compares a token's claims; `decode: "exec:<cmd>"` compares a body piped through a command (e.g. `pdftotext`).
+
 #### 1. `parity` package and `ginboot-parity` command
 - Send the same requests to two services, as the same users, and report every difference that is not explicitly allowed — for proving a port answers like the API it replaces. See [Comparing two services](/docs/4-advanced/parity).
 - Rules for ignored paths, unordered arrays, `null` vs absent, timestamps compared as instants, and number formatting. Only `GET`/`HEAD` are sent unless allowed, and reports redact response values by default.

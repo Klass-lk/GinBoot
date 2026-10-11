@@ -66,6 +66,18 @@ type Rules struct {
 
 	// IgnoreStatus skips the status-code comparison.
 	IgnoreStatus bool `yaml:"ignoreStatus" json:"ignoreStatus,omitempty"`
+
+	// Decode turns both bodies into comparable text before the comparison,
+	// for bodies that differ on every call by construction:
+	//
+	//	jwt          a JSON Web Token becomes {"header": ..., "payload": ...}
+	//	             (the signature is dropped), so its claims are compared
+	//	             and ignore rules such as "$.payload.iat" apply
+	//	exec:<cmd>   the body is piped through a shell command and its output
+	//	             compared, e.g. "exec:pdftotext -layout - -" for PDFs
+	//
+	// A body that fails to decode is compared as it is.
+	Decode string `yaml:"decode" json:"decode,omitempty"`
 }
 
 // Merge returns r with other's settings added: lists are concatenated, map
@@ -93,6 +105,9 @@ func (r Rules) Merge(other Rules) Rules {
 		out.Headers = append(append([]string{}, r.Headers...), other.Headers...)
 	}
 	out.IgnoreStatus = r.IgnoreStatus || other.IgnoreStatus
+	if other.Decode != "" {
+		out.Decode = other.Decode
+	}
 	return out
 }
 
@@ -113,6 +128,9 @@ type unorderedRule struct {
 
 func (r Rules) compile() (*compiledRules, error) {
 	c := &compiledRules{Rules: r}
+	if r.Decode != "" && r.Decode != "jwt" && !strings.HasPrefix(r.Decode, "exec:") {
+		return nil, fmt.Errorf("parity: unknown decode %q (want jwt or exec:<command>)", r.Decode)
+	}
 	var err error
 	if c.ignore, err = compilePatterns(r.Ignore); err != nil {
 		return nil, err
