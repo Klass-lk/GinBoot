@@ -106,7 +106,7 @@ Seeded collections are cleared before the next scenario.
 
 - `When I send a GET|DELETE|HEAD|POST|PUT|PATCH request to "<path>"` — no body
 - `When I send a POST|PUT|PATCH request to "<path>" with JSON:` + doc string
-- `When I send a POST|PUT|PATCH|DELETE request to "<path>" with raw body:` + doc string — sent as written, valid JSON or not (an empty doc string sends an empty body), as `application/json` unless a `Content-Type` header was set; for testing how bad bodies are refused
+- `When I send a GET|HEAD|DELETE|POST|PUT|PATCH request to "<path>" with raw body:` + doc string — sent as written, valid JSON or not (an empty doc string sends an empty body), as `application/json` unless a `Content-Type` header was set; for testing how bad bodies are refused
 - `When I send a POST|PUT request to "<path>" with body` + one-row table
 - `When I send an authenticated GET request to "<path>"` — uses the token stored as `authToken`
 
@@ -127,7 +127,7 @@ Seeded collections are cleared before the next scenario.
 - `Given the reference service is at "<url>"` (or set `ReferenceURL`)
 - `When I send a GET|HEAD|DELETE|POST|PUT|PATCH request to "<path>" to both services` — no body
 - `When I send a POST|PUT|PATCH request to "<path>" to both services with JSON:` + doc string
-- `When I send a POST|PUT|PATCH|DELETE request to "<path>" to both services with raw body:` + doc string
+- `When I send a GET|HEAD|DELETE|POST|PUT|PATCH request to "<path>" to both services with raw body:` + doc string
 - `Then both responses should match` / `Then both responses should match ignoring:` + table of paths
 - `Then document "<collection>" should match in both databases` / `... ignoring:` + table of paths rooted at the array (`$[*].createdAt`) — the collection's items in the two databases, compared as multisets under `ParityRules`.
 
