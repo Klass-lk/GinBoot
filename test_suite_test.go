@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	messages "github.com/cucumber/messages-go/v16"
@@ -402,4 +403,20 @@ func TestSuiteSmallBranches(t *testing.T) {
 		ReferenceURL: "http://127.0.0.1:1"}
 	assert.Error(t, ts.Send("BAD METHOD", "/notes", nil))
 	assert.Error(t, ts.iSendARequestToBothServices("GET", "/%zz"))
+}
+
+func TestCompareDatabasesSettles(t *testing.T) {
+	ref := &memoryAdapter{docs: map[string][]any{"log": {map[string]any{"a": 1.0}}}}
+	cand := &memoryAdapter{docs: map[string][]any{}}
+	ts := &TestSuite{Adapter: cand, ReferenceAdapter: ref, ReferenceSettle: 2 * time.Second}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cand.mu.Lock()
+		cand.docs["log"] = []any{map[string]any{"a": 1.0}}
+		cand.mu.Unlock()
+	}()
+	assert.NoError(t, ts.compareDatabases("log", parity.Rules{}), "a late write is waited for")
+	ts.ReferenceSettle = 0
+	ref.docs["log"] = append(ref.docs["log"], map[string]any{"b": 2.0})
+	assert.Error(t, ts.compareDatabases("log", parity.Rules{}), "without settling, compared once")
 }

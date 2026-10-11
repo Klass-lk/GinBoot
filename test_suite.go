@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/cucumber/godog/colors"
@@ -82,6 +83,12 @@ type TestSuite struct {
 	// databases" compares what each stored. Table rows are mirrored through
 	// a GenericDBSeeder's constructors; JSON seeding needs a JSONInserter.
 	ReferenceAdapter DBAdapter
+
+	// ReferenceSettle is how long "should match in both databases" keeps
+	// retrying a comparison that differs, for services that write some
+	// documents after they answer (an audit log fed by a queue). Default 0:
+	// compare once.
+	ReferenceSettle time.Duration
 
 	// ReferenceAllowWrites lets the "to both services" steps send POST, PUT,
 	// PATCH and DELETE to the reference. Off by default: a reference is often
@@ -589,6 +596,17 @@ func (ts *TestSuite) documentShouldMatchInBothDatabasesIgnoring(document string,
 // as multisets (order is the database's, not the service's), under
 // ParityRules plus extra; paths are rooted at the array, e.g. "$[*].createdAt".
 func (ts *TestSuite) compareDatabases(document string, extra parity.Rules) error {
+	deadline := time.Now().Add(ts.ReferenceSettle)
+	for {
+		err := ts.compareDatabasesOnce(document, extra)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (ts *TestSuite) compareDatabasesOnce(document string, extra parity.Rules) error {
 	cand, ok1 := ts.Adapter.(DocumentReader)
 	ref, ok2 := ts.ReferenceAdapter.(DocumentReader)
 	if !ok1 || !ok2 {

@@ -130,6 +130,7 @@ Seeded collections are cleared before the next scenario.
 - `When I send a GET|HEAD|DELETE|POST|PUT|PATCH request to "<path>" to both services with raw body:` + doc string
 - `Then both responses should match` / `Then both responses should match ignoring:` + table of paths
 - `Then document "<collection>" should match in both databases` / `... ignoring:` + table of paths rooted at the array (`$[*].createdAt`) — the collection's items in the two databases, compared as multisets under `ParityRules`.
+  `ReferenceSettle` makes it retry a differing comparison for that long, for a service that writes some documents after it answers.
 
 Writes are refused unless `ReferenceAllowWrites` is set: point it only at a disposable reference
 (a local copy of the old service over its own test database), never a shared one. Set
