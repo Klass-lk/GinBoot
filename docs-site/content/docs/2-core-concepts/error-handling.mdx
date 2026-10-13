@@ -58,3 +58,21 @@ func (c *UserController) GetUser(ctx *gin.Context) {
 ```
 
 If a standard Go `error` (not an `ApiError`) is passed to `SendError`, Ginboot will safely wrap it in a 500 Internal Server Error response to prevent exposing stack traces to clients.
+
+## Errors that write their own response
+
+When your error bodies must follow another shape — for example while replacing
+a service written in another framework — return an error that implements
+`ResponseError`. `SendError` (and so any handler that returns it) hands the
+request to the error instead of writing the default body. It is found through
+`errors.As`, so wrapped errors work too.
+
+```go
+type springError struct{ status int }
+
+func (e springError) Error() string { return http.StatusText(e.status) }
+
+func (e springError) WriteResponse(c *gin.Context) {
+	c.JSON(e.status, gin.H{"status": e.status, "error": http.StatusText(e.status), "path": c.Request.URL.Path})
+}
+```

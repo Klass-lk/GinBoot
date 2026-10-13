@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/cucumber/godog/colors"
@@ -82,6 +83,12 @@ type TestSuite struct {
 	// databases" compares what each stored. Table rows are mirrored through
 	// a GenericDBSeeder's constructors; JSON seeding needs a JSONInserter.
 	ReferenceAdapter DBAdapter
+
+	// ReferenceSettle is how long "should match in both databases" keeps
+	// retrying a comparison that differs, for services that write some
+	// documents after they answer (an audit log fed by a queue). Default 0:
+	// compare once.
+	ReferenceSettle time.Duration
 
 	// ReferenceAllowWrites lets the "to both services" steps send POST, PUT,
 	// PATCH and DELETE to the reference. Off by default: a reference is often
@@ -176,12 +183,12 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^I send a POST request to "([^"]*)" with body$`, ts.iSendAPOSTRequestToWithBody)
 	ctx.Step(`^I send a PUT request to "([^"]*)" with body$`, ts.iSendAPUTRequestToWithBody)
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" with JSON:?$`, ts.iSendARequestWithJSON)
-	ctx.Step(`^I send a (POST|PUT|PATCH|DELETE) request to "([^"]*)" with raw body:?$`, ts.iSendARequestWithRawBody)
+	ctx.Step(`^I send a (GET|HEAD|DELETE|POST|PUT|PATCH) request to "([^"]*)" with raw body:?$`, ts.iSendARequestWithRawBody)
 	ctx.Step(`^I send a (GET|DELETE|HEAD|POST|PUT|PATCH) request to "([^"]*)"$`, ts.iSendARequestTo)
 	ctx.Step(`^I send an authenticated GET request to "([^"]*)"$`, ts.iSendAnAuthenticatedGETRequestTo)
 	ctx.Step(`^I send a (GET|HEAD|DELETE|POST|PUT|PATCH) request to "([^"]*)" to both services$`, ts.iSendARequestToBothServices)
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with JSON:?$`, ts.iSendARequestWithJSONToBothServices)
-	ctx.Step(`^I send a (POST|PUT|PATCH|DELETE) request to "([^"]*)" to both services with raw body:?$`, ts.iSendARequestWithRawBodyToBothServices)
+	ctx.Step(`^I send a (GET|HEAD|DELETE|POST|PUT|PATCH) request to "([^"]*)" to both services with raw body:?$`, ts.iSendARequestWithRawBodyToBothServices)
 	ctx.Step(`^document "([^"]*)" should match in both databases$`, ts.documentShouldMatchInBothDatabases)
 	ctx.Step(`^document "([^"]*)" should match in both databases ignoring:?$`, ts.documentShouldMatchInBothDatabasesIgnoring)
 
@@ -200,6 +207,7 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the reference service is at "([^"]*)"$`, ts.theReferenceServiceIsAt)
 	ctx.Step(`^both responses should match$`, ts.bothResponsesShouldMatch)
 	ctx.Step(`^both responses should match ignoring:?$`, ts.bothResponsesShouldMatchIgnoring)
+	ctx.Step(`^both responses should match with lists in any order:?$`, ts.bothResponsesShouldMatchUnordered)
 
 	if ts.Steps != nil {
 		ts.Steps(ctx)
@@ -589,6 +597,17 @@ func (ts *TestSuite) documentShouldMatchInBothDatabasesIgnoring(document string,
 // as multisets (order is the database's, not the service's), under
 // ParityRules plus extra; paths are rooted at the array, e.g. "$[*].createdAt".
 func (ts *TestSuite) compareDatabases(document string, extra parity.Rules) error {
+	deadline := time.Now().Add(ts.ReferenceSettle)
+	for {
+		err := ts.compareDatabasesOnce(document, extra)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (ts *TestSuite) compareDatabasesOnce(document string, extra parity.Rules) error {
 	cand, ok1 := ts.Adapter.(DocumentReader)
 	ref, ok2 := ts.ReferenceAdapter.(DocumentReader)
 	if !ok1 || !ok2 {
@@ -628,6 +647,25 @@ func (ts *TestSuite) bothResponsesShouldMatchIgnoring(paths *godog.Table) error 
 		}
 	}
 	return ts.compareWithReference(rules.Merge(extra))
+}
+
+// bothResponsesShouldMatchUnordered compares with the listed arrays as
+// multisets, for services that build a list in no particular order. A row's
+// second cell, when given, is the key that pairs elements (see
+// parity.Rules.Unordered); otherwise whole elements are compared.
+func (ts *TestSuite) bothResponsesShouldMatchUnordered(paths *godog.Table) error {
+	extra := parity.Rules{Unordered: map[string]string{}}
+	for _, row := range paths.Rows {
+		if len(row.Cells) == 0 {
+			continue
+		}
+		key := ""
+		if len(row.Cells) > 1 {
+			key = row.Cells[1].Value
+		}
+		extra.Unordered[row.Cells[0].Value] = key
+	}
+	return ts.compareWithReference(ts.ParityRules.Merge(extra))
 }
 
 func (ts *TestSuite) compareWithReference(rules parity.Rules) error {

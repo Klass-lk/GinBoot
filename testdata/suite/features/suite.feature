@@ -116,3 +116,4 @@ Feature: TestSuite steps
     When I send a DELETE request to "/raw"
     Then the response status should be 200
     And the response body should be empty
+

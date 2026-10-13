@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -327,3 +328,19 @@ func TestContextServiceClientHelpers(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+type teapotError struct{}
+
+func (teapotError) Error() string { return "teapot" }
+func (teapotError) WriteResponse(c *gin.Context) {
+	c.JSON(http.StatusTeapot, gin.H{"brewing": true})
+}
+
+func TestSendErrorDelegatesToResponseError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	NewContext(c, nil, nil, nil).SendError(fmt.Errorf("wrapped: %w", teapotError{}))
+	assert.Equal(t, http.StatusTeapot, w.Code)
+	assert.JSONEq(t, `{"brewing": true}`, w.Body.String())
+}
