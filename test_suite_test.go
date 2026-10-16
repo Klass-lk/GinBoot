@@ -431,3 +431,20 @@ func TestBothResponsesMatchWithListsInAnyOrder(t *testing.T) {
 	assert.NoError(t, ts.bothResponsesShouldMatchUnordered(table([]string{"$.students", "id"}, []string{"$.tags"})))
 	assert.Error(t, ts.bothResponsesShouldMatchUnordered(table([]string{"$.tags"})), "only the listed paths")
 }
+
+func TestSeedingClearsLeftoversFirst(t *testing.T) {
+	cand, ref := &memoryAdapter{docs: map[string][]any{}}, &memoryAdapter{docs: map[string][]any{}}
+	require.NoError(t, cand.InsertJSON("notes", []byte(`{"_id":"left-over"}`)))
+	require.NoError(t, ref.InsertJSON("notes", []byte(`{"_id":"left-over"}`)))
+	ts := &TestSuite{Adapter: cand, ReferenceAdapter: ref}
+
+	require.NoError(t, ts.documentHasTheFollowingJSON("notes", doc(`{"_id":"n1"}`)))
+	require.NoError(t, ts.documentHasTheFollowingJSON("notes", doc(`{"_id":"n2"}`)))
+	assert.Len(t, cand.docs["notes"], 2, "leftovers cleared once; a second seed adds")
+	assert.Len(t, ref.docs["notes"], 2)
+
+	ts.clearSeeded()
+	assert.Empty(t, cand.docs["notes"])
+	assert.ErrorContains(t, (&TestSuite{Adapter: cand, ReferenceAdapter: failingAdapter{}}).
+		documentHasTheFollowingJSON("notes", doc(`{}`)), "reference: clearing notes: clear failed")
+}

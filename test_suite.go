@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -221,7 +222,9 @@ func (ts *TestSuite) documentHasTheFollowingItems(document string, data *godog.T
 	if !ok {
 		return fmt.Errorf("no seeder registered for document %s", document)
 	}
-	ts.collectionsToClear = append(ts.collectionsToClear, document)
+	if err := ts.claim(document); err != nil {
+		return err
+	}
 	if ts.ReferenceAdapter != nil {
 		generic, ok := seeder.(*GenericDBSeeder)
 		if !ok {
@@ -237,7 +240,9 @@ func (ts *TestSuite) documentHasTheFollowingItems(document string, data *godog.T
 
 func (ts *TestSuite) documentHasTheFollowingJSON(document string, doc *godog.DocString) error {
 	data := []byte(ts.substitute(doc.Content))
-	ts.collectionsToClear = append(ts.collectionsToClear, document)
+	if err := ts.claim(document); err != nil {
+		return err
+	}
 	if ts.ReferenceAdapter != nil {
 		ins, ok := ts.ReferenceAdapter.(JSONInserter)
 		if !ok {
@@ -377,16 +382,35 @@ func (ts *TestSuite) clearData() {
 
 func (ts *TestSuite) clearSeeded() {
 	for _, name := range ts.collectionsToClear {
-		if ts.ReferenceAdapter != nil {
-			_ = ts.ReferenceAdapter.Clear(name)
-		}
-		if seeder, ok := ts.DbSeeders[name].(*GenericDBSeeder); ok && seeder.Adapter != nil {
-			_ = seeder.Adapter.Clear(name)
-		} else if ts.Adapter != nil {
-			_ = ts.Adapter.Clear(name)
-		}
+		_ = ts.clearCollection(name)
 	}
 	ts.collectionsToClear = nil
+}
+
+// claim makes a collection the scenario's: the first time a scenario seeds
+// it, whatever it holds is cleared (in the reference database too), so data
+// left by an interrupted run or a manual probe cannot fail the scenario; it
+// is cleared again when the scenario ends.
+func (ts *TestSuite) claim(name string) error {
+	if slices.Contains(ts.collectionsToClear, name) {
+		return nil
+	}
+	ts.collectionsToClear = append(ts.collectionsToClear, name)
+	return ts.clearCollection(name)
+}
+
+func (ts *TestSuite) clearCollection(name string) error {
+	if ts.ReferenceAdapter != nil {
+		if err := ts.ReferenceAdapter.Clear(name); err != nil {
+			return fmt.Errorf("reference: clearing %s: %w", name, err)
+		}
+	}
+	if seeder, ok := ts.DbSeeders[name].(*GenericDBSeeder); ok && seeder.Adapter != nil {
+		return seeder.Adapter.Clear(name)
+	} else if ts.Adapter != nil {
+		return ts.Adapter.Clear(name)
+	}
+	return nil
 }
 
 // ---- who and how ------------------------------------------------------------
