@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"regexp"
 	"sync"
 
 	"go.mongodb.org/mongo-driver/event"
@@ -83,16 +84,24 @@ func tracingMonitor(tracer trace.Tracer, next *event.CommandMonitor) *event.Comm
 			}
 		},
 		Failed: func(ctx context.Context, e *event.CommandFailedEvent) {
-			msg := e.Failure
-			if msg == "" {
-				msg = "command failed"
-			}
-			finish(e.RequestID, msg)
+			finish(e.RequestID, failure(e.Failure))
 			if next != nil && next.Failed != nil {
 				next.Failed(ctx, e)
 			}
 		},
 	}
+}
+
+// failureCode keeps the "(CodeName)" a server error starts with.
+var failureCode = regexp.MustCompile(`^\(([A-Za-z0-9]+)\)`)
+
+// failure names a failed command by its server error code, never the
+// message, which can quote document values (a duplicate key's).
+func failure(msg string) string {
+	if m := failureCode.FindStringSubmatch(msg); m != nil {
+		return m[1]
+	}
+	return "command failed"
 }
 
 // commandCollection is the collection a command names: the command's own

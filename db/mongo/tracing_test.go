@@ -36,13 +36,19 @@ func TestTracingMonitorRecordsCommandSpans(t *testing.T) {
 	more := started(t, "getMore", bson.D{{Key: "getMore", Value: int64(7)}, {Key: "collection", Value: "users"}})
 	more.RequestID = 2
 	m.Started(parentCtx, more)
-	m.Failed(parentCtx, &event.CommandFailedEvent{CommandFinishedEvent: event.CommandFinishedEvent{RequestID: 2}, Failure: "cursor killed"})
+	m.Failed(parentCtx, &event.CommandFailedEvent{CommandFinishedEvent: event.CommandFinishedEvent{RequestID: 2}, Failure: "(CursorNotFound) cursor 7 not found for user@example.com"})
+	m.Started(parentCtx, func() *event.CommandStartedEvent {
+		e := started(t, "insert", bson.D{{Key: "insert", Value: "users"}})
+		e.RequestID = 3
+		return e
+	}())
+	m.Failed(parentCtx, &event.CommandFailedEvent{CommandFinishedEvent: event.CommandFinishedEvent{RequestID: 3}, Failure: "connection reset"})
 
 	m.Started(parentCtx, started(t, "hello", bson.D{{Key: "hello", Value: 1}}))
 	parent.End()
 
 	spans := recorder.Ended()
-	require.Len(t, spans, 3) // find, getMore, request; no span for hello
+	require.Len(t, spans, 4) // find, getMore, insert, request; no span for hello
 	assert.Equal(t, "find users", spans[0].Name())
 	assert.Equal(t, parent.SpanContext().SpanID(), spans[0].Parent().SpanID())
 	assert.Contains(t, spans[0].Attributes(), attribute.String("db.collection.name", "users"))
@@ -53,8 +59,9 @@ func TestTracingMonitorRecordsCommandSpans(t *testing.T) {
 	assert.Equal(t, codes.Unset, spans[0].Status().Code)
 	assert.Equal(t, "getMore users", spans[1].Name())
 	assert.Equal(t, codes.Error, spans[1].Status().Code)
-	assert.Equal(t, "cursor killed", spans[1].Status().Description)
-	assert.Equal(t, []string{"started", "succeeded", "started", "failed", "started"}, forwarded)
+	assert.Equal(t, "CursorNotFound", spans[1].Status().Description, "the code, not the message")
+	assert.Equal(t, "command failed", spans[2].Status().Description)
+	assert.Equal(t, []string{"started", "succeeded", "started", "failed", "started", "failed", "started"}, forwarded)
 }
 
 // BenchmarkTracingMonitor is one command's Started+Succeeded: what the
