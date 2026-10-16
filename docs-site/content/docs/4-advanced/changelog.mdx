@@ -32,7 +32,10 @@ All notable changes, new features, architectural improvements, and deprecations 
 - A command monitor that refuses every command that would change data or schema before it is sent, for running a service against a database it must not change.
 - `MongoAdapter.InsertJSON` seeds documents from MongoDB Extended JSON.
 
-#### 3. TestSuite **(behaviour change)**
+#### 3. Seeding clears a collection first **(behaviour change)**
+- The first `document "x" has the following JSON` of a scenario clears that collection, in the reference database too, before inserting. Data left by an interrupted run or a manual probe no longer fails the next run with a duplicate key. Later seeds of the same collection in the scenario add to it, as before.
+
+#### 4. TestSuite **(behaviour change)**
 - Failing assertions now fail their step: `the response status should be` and `the response should contain an item with` used to log through `assert` and return `nil`, so the scenario carried on and reported success.
 - New steps: principals (`I am authenticated as`), headers and cookies, JSON bodies, JSONPath assertions, Extended JSON seeding, snapshots, and comparison with a reference service. `Steps` registers application steps; `Send` and `Lookup` are exported for them.
 - `Paths` makes the feature location configurable; `TestFeatures` fails the test when a scenario fails.
@@ -69,6 +72,15 @@ All notable changes, new features, architectural improvements, and deprecations 
 - `runtime/lambda` now registers as a Lambda internal extension and drains telemetry in the window between the response going out and the environment freezing. Nothing to configure.
 - **Responses are not delayed** — Lambda returns the response before extensions finish — but the drain is inside the billed invocation. Bound it with `GINBOOT_TELEMETRY_FLUSH_TIMEOUT` (default `2s`) and watch `PostRuntimeExtensionsDuration`.
 - HTTP servers are unaffected: the machinery lives in `runtime/lambda`, is inert unless `AWS_LAMBDA_RUNTIME_API` is set, and does not register at all when no telemetry is compiled in. A failed registration leaves the function serving exactly as before.
+
+#### 7. Database calls are traced: MongoDB, SQL and DynamoDB
+- `db/mongo.TracingMonitor`, `db/sql.TracingPlugin` (any gorm dialect) and `db/dynamodb.WithTracing` record every call as a client span under the request that made it: `find sessions`, `select users`, `GetItem users`. `MongoConfig.Connect`, `SQLConfig.ConnectGORM` and `NewDynamoDBClient` install them.
+- No user data reaches the tracing backend. Command bodies, keys, items, arguments and error messages are never recorded, and a failure carries only its code (`DuplicateKey`, `SQLSTATE 23505`, `ConditionalCheckFailedException`). Parameterised SQL text is opt-in (`QueryText`).
+- **No added latency to speak of.** Export stays in the batch processor's goroutine, and a span that is not kept is neither tracked nor described. Measured per call on an Apple M1: ~0.25 µs with telemetry off, ~0.4 µs sampled out, ~1.4 µs recorded, against a 0.3–5 ms query. See [Database tracing](/docs/3-features/telemetry#10-database-tracing).
+
+#### 8. `Context.Value` sees the request's context **(behaviour change)**
+- Handlers pass `*ginboot.Context` on as a `context.Context`, but gin's `Value` never consulted `Request.Context()`, so spans started below a handler (database calls) began traces of their own. `Value` now falls back to the request's context.
+- Only `Value` falls back: `Done` and `Deadline` stay gin's, so a client hanging up does not cancel work already under way.
 
 ---
 

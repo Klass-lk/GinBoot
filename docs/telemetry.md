@@ -104,6 +104,81 @@ None of this touches an HTTP server, which is never frozen. The machinery is in 
 
 Nothing here sits on the path of a request. Setting up exporters builds clients without dialing anything, and each record a request produces is handed to a batch processor that exports from its own goroutine — if its queue is full it drops rather than blocking your handler. Payload capture is off unless you ask for it.
 
+## Database tracing
+
+Every database call is a child span of the request that made it, so a slow
+endpoint's trace shows which query took the time. ginboot's own
+constructors install it; telemetry being off makes it nearly free (see
+below).
+
+| Store | Hook | Installed by | Your own client |
+|---|---|---|---|
+| MongoDB | `db/mongo.TracingMonitor` (command monitor) | `MongoConfig.Connect` | `options.Client().SetMonitor(mongo.TracingMonitor(nil))` |
+| SQL via gorm (Postgres, MySQL, SQLite…) | `db/sql.TracingPlugin` (gorm plugin) | `SQLConfig.ConnectGORM` | `db.Use(sql.TracingPlugin{})` |
+| DynamoDB | `db/dynamodb.WithTracing` (SDK middleware) | `NewDynamoDBClient` | `dynamodb.NewFromConfig(cfg, ginbootdynamo.WithTracing)` |
+
+Pass the request's context down: a `*ginboot.Context` is a
+`context.Context` whose `Value` sees the request's span, so
+`repo.FindById(ctx, id)` from a handler is enough. For gorm use
+`db.WithContext(ctx)`. A call made with `context.Background()` starts a
+trace of its own.
+
+Monitors chain. Put a guard outermost so a refused command never opens a
+span: `mongo.ReadOnlyMonitor(mongo.TracingMonitor(nil))`.
+
+### What a span holds
+
+- Name `<operation> <collection or table>`: `find sessions`, `select users`,
+  `GetItem users`. Calls over several tables (`BatchGetItem`,
+  `TransactWriteItems`) have no table.
+- `db.system`, `db.collection.name`, `db.operation.name`, and
+  `db.namespace` (MongoDB database) or `db.response.returned_rows` (SQL).
+- A failed call is marked as an error with a **code only**: the MongoDB
+  error code name (`DuplicateKey`), the SQLSTATE (`SQLSTATE 23505`) or
+  gorm error, or the DynamoDB error code
+  (`ConditionalCheckFailedException`).
+
+Never recorded: command bodies, filters, keys, items, statement arguments,
+and error messages, because all of them can carry user data (a duplicate
+key error quotes the value). `TracingPlugin{QueryText: true}` adds the
+parameterised SQL (`... WHERE email = ?`), never its arguments. It is
+opt-in because raw SQL that inlines values would carry them.
+
+### Does it slow requests down?
+
+Not measurably. The hook runs on the calling goroutine, but it only builds
+a span. Export happens in the batch processor's own goroutine, and if the
+processor's queue is full, spans are dropped. A query never waits on the
+tracing backend. A span that will not be kept (telemetry off, or sampled
+out) is neither tracked nor described.
+
+`BenchmarkTracingMonitor` in `db/mongo` measures one command's
+start and finish on an Apple M1:
+
+| Situation | Added per call |
+|---|---|
+| Telemetry off (no-op provider) | ~0.25 µs |
+| Sampled out | ~0.4 µs |
+| Recorded, batch exporter | ~1.4 µs |
+
+A MongoDB round trip takes 300–5000 µs, so even a recorded span adds under
+0.5%. Under load, sampling (`OTEL_TRACES_SAMPLER_ARG`) brings the cost
+down to the sampled-out figure.
+
+### Tracing another store
+
+Use the client library's own extension point, never a wrapper around every
+call: a command monitor, a plugin or callback, a driver middleware. Then:
+
+1. Start a `SpanKindClient` span from the call's context, named
+   `<operation> <table>`.
+2. If `!span.IsRecording()`, do nothing more.
+3. Use the attribute names above, and record error codes, not messages.
+4. Install it in ginboot's constructor for that store.
+5. Test it with `tracetest.NewSpanRecorder()`: parenting, names, the error
+   code, and that a value placed in the request never shows up in an
+   attribute. Add a benchmark.
+
 ## Context-Bound Logger
 
 `ginboot` comes with a powerful `Logger` interface bound directly to the request context. This ensures that any log you write from your business logic is automatically correlated with the current distributed trace!
