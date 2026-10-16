@@ -79,7 +79,8 @@ func (c *MongoConfig) Connect() (*mongo.Database, error) {
 	clientOptions := options.Client().
 		ApplyURI(uri).
 		SetServerSelectionTimeout(10 * time.Second).
-		SetConnectTimeout(10 * time.Second)
+		SetConnectTimeout(10 * time.Second).
+		SetMonitor(TracingMonitor(nil)) // every command is a span under its request
 
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
