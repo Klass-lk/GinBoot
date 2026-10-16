@@ -107,6 +107,9 @@ func (c *SQLConfig) ConnectGORM() (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to GORM database: %w", err)
 	}
+	if err := gormDB.Use(TracingPlugin{}); err != nil {
+		return nil, fmt.Errorf("failed to install SQL tracing: %w", err)
+	}
 
 	sqlDB, err := gormDB.DB()
 	if err == nil {
