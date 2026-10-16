@@ -432,6 +432,19 @@ func TestBothResponsesMatchWithListsInAnyOrder(t *testing.T) {
 	assert.Error(t, ts.bothResponsesShouldMatchUnordered(table([]string{"$.tags"})), "only the listed paths")
 }
 
+func TestBothResponsesMatchUnderRules(t *testing.T) {
+	ts := &TestSuite{}
+	ts.refResp = &parity.Response{Status: 200, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: []byte(`{"id":"r-1","ranks":[{"id":"a","n":1},{"id":"b","n":2}]}`)}
+	ts.Resp = &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}}
+	ts.RespBody = []byte(`{"id":"c-9","ranks":[{"id":"b","n":2},{"id":"a","n":1}]}`)
+	assert.NoError(t, ts.bothResponsesShouldMatchUnder(table([]string{"ignore", "$.id"}, []string{"unordered", "$.ranks", "id"})))
+	assert.Error(t, ts.bothResponsesShouldMatchUnder(table([]string{"ignore", "$.id"})), "ranks still ordered")
+	assert.Error(t, ts.bothResponsesShouldMatchUnder(table([]string{"unordered", "$.ranks", "id"})), "ids still compared")
+	assert.ErrorContains(t, ts.bothResponsesShouldMatchUnder(table([]string{"skip", "$.id"})), "unknown rule")
+	assert.ErrorContains(t, ts.bothResponsesShouldMatchUnder(table([]string{"ignore"})), "kind and a path")
+}
+
 func TestSeedingClearsLeftoversFirst(t *testing.T) {
 	cand, ref := &memoryAdapter{docs: map[string][]any{}}, &memoryAdapter{docs: map[string][]any{}}
 	require.NoError(t, cand.InsertJSON("notes", []byte(`{"_id":"left-over"}`)))

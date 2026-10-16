@@ -130,6 +130,7 @@ Seeded collections are cleared before the next scenario.
 - `When I send a GET|HEAD|DELETE|POST|PUT|PATCH request to "<path>" to both services with raw body:` + doc string
 - `Then both responses should match` / `Then both responses should match ignoring:` + table of paths
 - `Then both responses should match with lists in any order:` + table of array paths (and optionally the key that pairs their elements), for lists a service builds in no particular order
+- `Then both responses should match under these rules:` + one rule per row, to combine kinds: `| ignore | $.id |`, `| unordered | $.ranks | student.id |`
 - `Then document "<collection>" should match in both databases` / `... ignoring:` + table of paths rooted at the array (`$[*].createdAt`) — the collection's items in the two databases, compared as multisets under `ParityRules`.
   `ReferenceSettle` makes it retry a differing comparison for that long, for a service that writes some documents after it answers.
 

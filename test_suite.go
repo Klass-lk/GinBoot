@@ -209,6 +209,7 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^both responses should match$`, ts.bothResponsesShouldMatch)
 	ctx.Step(`^both responses should match ignoring:?$`, ts.bothResponsesShouldMatchIgnoring)
 	ctx.Step(`^both responses should match with lists in any order:?$`, ts.bothResponsesShouldMatchUnordered)
+	ctx.Step(`^both responses should match under these rules:?$`, ts.bothResponsesShouldMatchUnder)
 
 	if ts.Steps != nil {
 		ts.Steps(ctx)
@@ -688,6 +689,32 @@ func (ts *TestSuite) bothResponsesShouldMatchUnordered(paths *godog.Table) error
 			key = row.Cells[1].Value
 		}
 		extra.Unordered[row.Cells[0].Value] = key
+	}
+	return ts.compareWithReference(ts.ParityRules.Merge(extra))
+}
+
+// bothResponsesShouldMatchUnder compares the responses under several kinds
+// of rule at once, one per row: "| ignore | $.id |" or
+// "| unordered | $.ranks | student.id |" (the key is optional).
+func (ts *TestSuite) bothResponsesShouldMatchUnder(table *godog.Table) error {
+	extra := parity.Rules{Unordered: map[string]string{}}
+	for _, row := range table.Rows {
+		if len(row.Cells) < 2 {
+			return fmt.Errorf("a rule row needs a kind and a path, got %d cells", len(row.Cells))
+		}
+		kind, path := row.Cells[0].Value, row.Cells[1].Value
+		switch kind {
+		case "ignore":
+			extra.Ignore = append(extra.Ignore, path)
+		case "unordered":
+			key := ""
+			if len(row.Cells) > 2 {
+				key = row.Cells[2].Value
+			}
+			extra.Unordered[path] = key
+		default:
+			return fmt.Errorf("unknown rule %q: use ignore or unordered", kind)
+		}
 	}
 	return ts.compareWithReference(ts.ParityRules.Merge(extra))
 }
