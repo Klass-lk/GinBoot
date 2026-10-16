@@ -2,6 +2,9 @@
 
 Ginboot provides a powerful and flexible multi-database support system through a generic repository interface. This allows you to interact with different database systems (MongoDB, SQL, DynamoDB) using a consistent API, making your application more modular, testable, and adaptable to various data storage needs.
 
+
+> Every query is traced: MongoDB, SQL and DynamoDB clients built by ginboot record each call as a span under the request that made it, without command bodies or values. See [Database tracing](telemetry.md#database-tracing).
+
 ## Generic Repository Interface
 
 The core of Ginboot's database abstraction is the `GenericRepository[T any]` interface. This interface defines a comprehensive set of common data access operations, ensuring a uniform way to interact with different database types.

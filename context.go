@@ -36,6 +36,24 @@ func NewContext(c *gin.Context, fileService FileService, logger Logger, serviceC
 	}
 }
 
+// Value looks a key up in the gin keys and then in the request's context.
+//
+// Handlers pass the Context on as a context.Context, so this is what the
+// code below them sees. Without the fallback the request's span (and any
+// other request-scoped value) is invisible there, and spans started under a
+// handler, such as database calls, start new traces. Only Value falls back:
+// Done and Deadline stay gin's, so a client that hangs up does not cancel
+// work already under way.
+func (c *Context) Value(key any) any {
+	if v := c.Context.Value(key); v != nil {
+		return v
+	}
+	if c.Request == nil {
+		return nil
+	}
+	return c.Request.Context().Value(key)
+}
+
 func (c *Context) GetFileService() FileService {
 	return c.fileService
 }

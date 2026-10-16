@@ -1,6 +1,7 @@
 package ginboot
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -343,4 +344,22 @@ func TestSendErrorDelegatesToResponseError(t *testing.T) {
 	NewContext(c, nil, nil, nil).SendError(fmt.Errorf("wrapped: %w", teapotError{}))
 	assert.Equal(t, http.StatusTeapot, w.Code)
 	assert.JSONEq(t, `{"brewing": true}`, w.Body.String())
+}
+
+type requestKey struct{}
+
+func TestContext_ValueFallsBackToRequestContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	req := httptest.NewRequest("GET", "/", nil)
+	c.Request = req.WithContext(context.WithValue(req.Context(), requestKey{}, "from-request"))
+	c.Set("gin-key", "from-gin")
+	ctx := NewContext(c, nil, nil, nil)
+
+	assert.Equal(t, "from-request", ctx.Value(requestKey{}))
+	assert.Equal(t, "from-gin", ctx.Value("gin-key"))
+	assert.Nil(t, ctx.Done(), "cancellation stays gin's")
+
+	c.Request = nil
+	assert.Nil(t, ctx.Value(requestKey{}))
 }

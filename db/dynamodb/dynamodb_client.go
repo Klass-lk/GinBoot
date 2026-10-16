@@ -8,11 +8,12 @@ import (
 )
 
 // NewDynamoDBClient creates and returns a new DynamoDB client.
-// It takes a region as input and loads AWS configuration.
+// It takes a region as input and loads AWS configuration. Each call is
+// traced (WithTracing).
 func NewDynamoDBClient(region string) (*dynamodb.Client, error) {
 	cfg, err := awsConfig.LoadDefaultConfig(context.TODO(), awsConfig.WithRegion(region))
 	if err != nil {
 		return nil, err
 	}
-	return dynamodb.NewFromConfig(cfg), nil
+	return dynamodb.NewFromConfig(cfg, WithTracing), nil
 }
