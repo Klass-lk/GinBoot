@@ -58,15 +58,19 @@ func tracingMonitor(tracer trace.Tracer, next *event.CommandMonitor) *event.Comm
 				if coll != "" {
 					name += " " + coll
 				}
-				_, span := tracer.Start(ctx, name, trace.WithSpanKind(trace.SpanKindClient),
-					trace.WithAttributes(
+				_, span := tracer.Start(ctx, name, trace.WithSpanKind(trace.SpanKindClient))
+				// Only a span that is kept is tracked and described: a
+				// sampled-out or no-op span has nothing to end.
+				if span.IsRecording() {
+					spans.Store(e.RequestID, span)
+					span.SetAttributes(
 						attribute.String("db.system", "mongodb"),
 						attribute.String("db.namespace", e.DatabaseName),
 						attribute.String("db.collection.name", coll),
 						attribute.String("db.operation.name", e.CommandName),
 						attribute.String("db.mongodb.connection_id", e.ConnectionID),
-					))
-				spans.Store(e.RequestID, span)
+					)
+				}
 			}
 			if next != nil && next.Started != nil {
 				next.Started(ctx, e)

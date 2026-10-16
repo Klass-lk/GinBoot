@@ -12,6 +12,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestTracingMonitorRecordsCommandSpans(t *testing.T) {
@@ -54,3 +56,38 @@ func TestTracingMonitorRecordsCommandSpans(t *testing.T) {
 	assert.Equal(t, "cursor killed", spans[1].Status().Description)
 	assert.Equal(t, []string{"started", "succeeded", "started", "failed", "started"}, forwarded)
 }
+
+// BenchmarkTracingMonitor is one command's Started+Succeeded: what the
+// monitor adds to a query, which itself takes ~0.3-5ms on the network.
+func BenchmarkTracingMonitor(b *testing.B) {
+	raw, _ := bson.Marshal(bson.D{{Key: "find", Value: "sessions"}, {Key: "filter", Value: bson.D{{Key: "moduleId", Value: "m"}}}})
+	run := func(b *testing.B, tracer trace.Tracer, parent context.Context) {
+		m := tracingMonitor(tracer, nil)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			e := &event.CommandStartedEvent{CommandName: "find", DatabaseName: "app", Command: raw, RequestID: int64(i)}
+			m.Started(parent, e)
+			m.Succeeded(parent, &event.CommandSucceededEvent{CommandFinishedEvent: event.CommandFinishedEvent{RequestID: int64(i)}})
+		}
+	}
+	b.Run("telemetry off (no-op provider)", func(b *testing.B) {
+		run(b, noop.NewTracerProvider().Tracer("x"), context.Background())
+	})
+	b.Run("sampled out", func(b *testing.B) {
+		tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample()))
+		run(b, tp.Tracer("x"), context.Background())
+	})
+	b.Run("recorded, batch exporter", func(b *testing.B) {
+		tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(discard{}))
+		defer tp.Shutdown(context.Background())
+		ctx, parent := tp.Tracer("x").Start(context.Background(), "request")
+		defer parent.End()
+		run(b, tp.Tracer("x"), ctx)
+	})
+}
+
+type discard struct{}
+
+func (discard) ExportSpans(context.Context, []sdktrace.ReadOnlySpan) error { return nil }
+func (discard) Shutdown(context.Context) error                             { return nil }
