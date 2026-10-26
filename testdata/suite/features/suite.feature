@@ -48,6 +48,11 @@ Feature: TestSuite steps
       """
     Then the response "$.value" should be "posted"
 
+  Scenario: A header both services set differently can be left out of the comparison
+    When I send a GET request to "/typed" to both services
+    Then both responses should match under these rules:
+      | ignore header | Content-Type |
+
   Scenario: Comparing with a reference service
     When I send a GET request to "/items/1" to both services
     Then both responses should match ignoring:

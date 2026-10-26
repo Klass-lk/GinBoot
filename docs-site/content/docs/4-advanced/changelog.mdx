@@ -36,7 +36,7 @@ All notable changes, new features, architectural improvements, and deprecations 
 - The first `document "x" has the following JSON` of a scenario clears that collection, in the reference database too, before inserting. Data left by an interrupted run or a manual probe no longer fails the next run with a duplicate key. Later seeds of the same collection in the scenario add to it, as before.
 
 #### 4. `both responses should match under these rules`
-- One table combines ignored paths and lists compared in any order (`| ignore | $.id |`, `| unordered | $.ranks | student.id |`), which the separate `ignoring` and `with lists in any order` steps cannot.
+- One table combines ignored paths and lists compared in any order (`| ignore | $.id |`, `| unordered | $.ranks | student.id |`), which the separate `ignoring` and `with lists in any order` steps cannot. `| ignore header | Content-Type |` leaves a response header out of the comparison.
 
 #### 4a. `to both services with JSON, as multipart part "<name>" to the reference`
 - Compares a route that now takes JSON with a reference that took the same JSON as one part of a `multipart/form-data` body (e.g. a Spring `@RequestPart` next to a file part). See [Comparing two services](/docs/4-advanced/parity).

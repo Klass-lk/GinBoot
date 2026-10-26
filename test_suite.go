@@ -738,6 +738,7 @@ func (ts *TestSuite) bothResponsesShouldMatchUnordered(paths *godog.Table) error
 // "| unordered | $.ranks | student.id |" (the key is optional).
 func (ts *TestSuite) bothResponsesShouldMatchUnder(table *godog.Table) error {
 	extra := parity.Rules{Unordered: map[string]string{}}
+	var skipHeaders []string
 	for _, row := range table.Rows {
 		if len(row.Cells) < 2 {
 			return fmt.Errorf("a rule row needs a kind and a path, got %d cells", len(row.Cells))
@@ -746,6 +747,8 @@ func (ts *TestSuite) bothResponsesShouldMatchUnder(table *godog.Table) error {
 		switch kind {
 		case "ignore":
 			extra.Ignore = append(extra.Ignore, path)
+		case "ignore header":
+			skipHeaders = append(skipHeaders, path)
 		case "unordered":
 			key := ""
 			if len(row.Cells) > 2 {
@@ -753,10 +756,23 @@ func (ts *TestSuite) bothResponsesShouldMatchUnder(table *godog.Table) error {
 			}
 			extra.Unordered[path] = key
 		default:
-			return fmt.Errorf("unknown rule %q: use ignore or unordered", kind)
+			return fmt.Errorf("unknown rule %q: use ignore, ignore header or unordered", kind)
 		}
 	}
-	return ts.compareWithReference(ts.ParityRules.Merge(extra))
+	rules := ts.ParityRules.Merge(extra)
+	if len(skipHeaders) > 0 {
+		headers := rules.Headers
+		if headers == nil {
+			headers = []string{"Content-Type"}
+		}
+		rules.Headers = []string{}
+		for _, h := range headers {
+			if !slices.ContainsFunc(skipHeaders, func(skip string) bool { return strings.EqualFold(skip, h) }) {
+				rules.Headers = append(rules.Headers, h)
+			}
+		}
+	}
+	return ts.compareWithReference(rules)
 }
 
 func (ts *TestSuite) compareWithReference(rules parity.Rules) error {

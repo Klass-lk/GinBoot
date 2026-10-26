@@ -144,6 +144,14 @@ func suiteRouter(db *memoryAdapter, generatedAt, version string) *gin.Engine {
 		c.JSON(200, gin.H{"body": string(b), "type": c.GetHeader("Content-Type")})
 	})
 	r.GET("/drift", func(c *gin.Context) { c.JSON(200, gin.H{"version": version, "same": true}) })
+	// The same body under a different media type on each side.
+	r.GET("/typed", func(c *gin.Context) {
+		mediaType := "application/json"
+		if version == "java" {
+			mediaType = "application/x-ndjson"
+		}
+		c.Data(200, mediaType, []byte(`{"same":true}`))
+	})
 	// The reference ("java") takes the note as a multipart part "meta", the
 	// service as JSON; each echoes it and whether it got the format it takes.
 	r.POST("/notes/form", func(c *gin.Context) {
