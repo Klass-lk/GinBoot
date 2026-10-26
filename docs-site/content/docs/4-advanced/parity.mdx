@@ -116,6 +116,20 @@ Then both responses should match ignoring:
   | $..signedUrl |
 ```
 
+When a port changes how a route takes its body — the old service reads JSON from one part of a
+`multipart/form-data` request (a Spring `@RequestPart`, say) and the new one takes plain JSON, because file
+bytes now go straight to storage — send the same JSON to both, wrapped as that part for the reference:
+
+```gherkin
+When I send a POST request to "/api/courses" to both services with JSON, as multipart part "meta" to the reference:
+  """
+  {"name": "Maths", "price": 1500}
+  """
+Then both responses should match
+```
+
+The reference gets only that part, so this compares everything the route does apart from the file.
+
 ## A read-only candidate
 
 Comparing against production data usually means the candidate reads the production database. Attach

@@ -94,6 +94,16 @@ Feature: TestSuite steps
     And document "notes" should match in both databases
     And document "notes" should have 1 item
 
+  @parity
+  Scenario: Comparing a JSON route with a reference that takes the JSON as a multipart part
+    When I send a POST request to "/notes/form" to both services with JSON, as multipart part "meta" to the reference:
+      """
+      {"text": "moved out of the form"}
+      """
+    Then both responses should match
+    And the response "$.expectedFormat" should be "true"
+    And the response "$.note.text" should be "moved out of the form"
+
   Scenario: Raw bodies, requests without a body and empty responses
     When I send a POST request to "/raw" with raw body:
       """

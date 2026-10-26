@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,6 +144,25 @@ func suiteRouter(db *memoryAdapter, generatedAt, version string) *gin.Engine {
 		c.JSON(200, gin.H{"body": string(b), "type": c.GetHeader("Content-Type")})
 	})
 	r.GET("/drift", func(c *gin.Context) { c.JSON(200, gin.H{"version": version, "same": true}) })
+	// The reference ("java") takes the note as a multipart part "meta", the
+	// service as JSON; each echoes it and whether it got the format it takes.
+	r.POST("/notes/form", func(c *gin.Context) {
+		raw := []byte{}
+		if version == "java" {
+			// A part without a filename is a form value, as Spring's
+			// @RequestPart reads it.
+			raw = []byte(c.PostForm("meta"))
+		} else {
+			raw, _ = io.ReadAll(c.Request.Body)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		mediaType, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
+		c.JSON(200, gin.H{"note": body, "expectedFormat": (mediaType == "multipart/form-data") == (version == "java")})
+	})
 	return r
 }
 

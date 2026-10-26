@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -190,6 +192,7 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^I send a (GET|HEAD|DELETE|POST|PUT|PATCH) request to "([^"]*)" to both services$`, ts.iSendARequestToBothServices)
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with JSON:?$`, ts.iSendARequestWithJSONToBothServices)
 	ctx.Step(`^I send a (GET|HEAD|DELETE|POST|PUT|PATCH) request to "([^"]*)" to both services with raw body:?$`, ts.iSendARequestWithRawBodyToBothServices)
+	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with JSON, as multipart part "([^"]*)" to the reference:?$`, ts.iSendJSONToBothServicesAsMultipartToReference)
 	ctx.Step(`^document "([^"]*)" should match in both databases$`, ts.documentShouldMatchInBothDatabases)
 	ctx.Step(`^document "([^"]*)" should match in both databases ignoring:?$`, ts.documentShouldMatchInBothDatabasesIgnoring)
 
@@ -580,27 +583,64 @@ func (ts *TestSuite) iSendARequestWithRawBodyToBothServices(method, path string,
 	return ts.sendToBoth(method, path, []byte(ts.substitute(doc.Content)))
 }
 
+// iSendJSONToBothServicesAsMultipartToReference compares a route whose new
+// version takes a JSON body with a reference that takes the same JSON as
+// one part of a multipart/form-data body (e.g. a Spring @RequestPart), as
+// when a port moves file bytes out of the request: the service gets the
+// JSON, the reference gets it as the named part, with no file parts.
+func (ts *TestSuite) iSendJSONToBothServicesAsMultipartToReference(method, path, part string, doc *godog.DocString) error {
+	body := []byte(ts.substitute(doc.Content))
+	if !json.Valid(body) {
+		return fmt.Errorf("request body is not valid JSON")
+	}
+	var form bytes.Buffer
+	w := multipart.NewWriter(&form)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q`, part))
+	header.Set("Content-Type", "application/json")
+	pw, err := w.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	if _, err := pw.Write(body); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return ts.sendToBothAs(method, path, form.Bytes(), w.FormDataContentType(), body)
+}
+
 func (ts *TestSuite) sendToBoth(method, path string, body []byte) error {
+	return ts.sendToBothAs(method, path, body, "", body)
+}
+
+// sendToBothAs sends refBody to the reference (as refType, when not empty)
+// and body to the service.
+func (ts *TestSuite) sendToBothAs(method, path string, refBody []byte, refType string, body []byte) error {
 	if ts.ReferenceURL == "" {
 		return errors.New("no reference service: set ReferenceURL or use \"the reference service is at\"")
 	}
 	if method != http.MethodGet && method != http.MethodHead && !ts.ReferenceAllowWrites {
 		return fmt.Errorf("refusing to send %s to the reference: set ReferenceAllowWrites for a disposable reference", method)
 	}
-	req, err := ts.newRequest(strings.TrimRight(ts.ReferenceURL, "/"), method, path, body)
+	req, err := ts.newRequest(strings.TrimRight(ts.ReferenceURL, "/"), method, path, refBody)
 	if err != nil {
 		return err
+	}
+	if refType != "" {
+		req.Header.Set("Content-Type", refType)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("reference: %w", err)
 	}
 	defer resp.Body.Close()
-	refBody, err := io.ReadAll(resp.Body)
+	answer, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("reference: %w", err)
 	}
-	ts.refResp = &parity.Response{Status: resp.StatusCode, Header: resp.Header, Body: refBody}
+	ts.refResp = &parity.Response{Status: resp.StatusCode, Header: resp.Header, Body: answer}
 	return ts.Send(method, path, body)
 }
 
