@@ -109,6 +109,24 @@ Feature: TestSuite steps
     And the response "$.expectedFormat" should be "true"
     And the response "$.note.text" should be "moved out of the form"
 
+  @parity
+  Scenario: Comparing a route taking a file as JSON with a reference taking it as a file part
+    When I send a POST request to "/notes/import" to both services with the file "notes.csv", as multipart part "file" to the reference:
+      """
+      "a, b",yes
+      """
+    Then both responses should match
+    And the response "$.name" should be "notes.csv"
+    And the response "$.content" should be "\"a, b\",yes"
+
+  Scenario: Sending a file as JSON
+    When I send a POST request to "/notes/import" with the file "one.csv" as JSON:
+      """
+      text
+      """
+    Then the response status should be 200
+    And the response "$.content" should be "text"
+
   Scenario: Raw bodies, requests without a body and empty responses
     When I send a POST request to "/raw" with raw body:
       """

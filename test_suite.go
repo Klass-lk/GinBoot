@@ -193,6 +193,8 @@ func (ts *TestSuite) InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with JSON:?$`, ts.iSendARequestWithJSONToBothServices)
 	ctx.Step(`^I send a (GET|HEAD|DELETE|POST|PUT|PATCH) request to "([^"]*)" to both services with raw body:?$`, ts.iSendARequestWithRawBodyToBothServices)
 	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with JSON, as multipart part "([^"]*)" to the reference:?$`, ts.iSendJSONToBothServicesAsMultipartToReference)
+	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" with the file "([^"]*)" as JSON:?$`, ts.iSendAFileAsJSON)
+	ctx.Step(`^I send a (POST|PUT|PATCH) request to "([^"]*)" to both services with the file "([^"]*)", as multipart part "([^"]*)" to the reference:?$`, ts.iSendAFileToBothServicesAsMultipartToReference)
 	ctx.Step(`^document "([^"]*)" should match in both databases$`, ts.documentShouldMatchInBothDatabases)
 	ctx.Step(`^document "([^"]*)" should match in both databases ignoring:?$`, ts.documentShouldMatchInBothDatabasesIgnoring)
 
@@ -603,6 +605,45 @@ func (ts *TestSuite) iSendJSONToBothServicesAsMultipartToReference(method, path,
 		return err
 	}
 	if _, err := pw.Write(body); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return ts.sendToBothAs(method, path, form.Bytes(), w.FormDataContentType(), body)
+}
+
+// fileAsJSON is how a service takes a file the reference took as a
+// multipart file part: {"fileName": name, "content": the text}.
+func (ts *TestSuite) fileAsJSON(name string, doc *godog.DocString) (content, body []byte, err error) {
+	content = []byte(ts.substitute(doc.Content))
+	body, err = json.Marshal(map[string]string{"fileName": name, "content": string(content)})
+	return content, body, err
+}
+
+func (ts *TestSuite) iSendAFileAsJSON(method, path, name string, doc *godog.DocString) error {
+	_, body, err := ts.fileAsJSON(name, doc)
+	if err != nil {
+		return err
+	}
+	return ts.Send(method, path, body)
+}
+
+// iSendAFileToBothServicesAsMultipartToReference sends the reference the
+// file as a multipart file part and the service the same file as JSON
+// (fileAsJSON), for a text upload a service takes in its body.
+func (ts *TestSuite) iSendAFileToBothServicesAsMultipartToReference(method, path, name, part string, doc *godog.DocString) error {
+	content, body, err := ts.fileAsJSON(name, doc)
+	if err != nil {
+		return err
+	}
+	var form bytes.Buffer
+	w := multipart.NewWriter(&form)
+	fw, err := w.CreateFormFile(part, name)
+	if err != nil {
+		return err
+	}
+	if _, err := fw.Write(content); err != nil {
 		return err
 	}
 	if err := w.Close(); err != nil {

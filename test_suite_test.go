@@ -171,6 +171,29 @@ func suiteRouter(db *memoryAdapter, generatedAt, version string) *gin.Engine {
 		mediaType, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
 		c.JSON(200, gin.H{"note": body, "expectedFormat": (mediaType == "multipart/form-data") == (version == "java")})
 	})
+	// The reference takes a file part "file", the service the same file as
+	// JSON; each echoes the name and the text.
+	r.POST("/notes/import", func(c *gin.Context) {
+		var name, content string
+		if version == "java" {
+			f, err := c.FormFile("file")
+			if err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			r, _ := f.Open()
+			raw, _ := io.ReadAll(r)
+			name, content = f.Filename, string(raw)
+		} else {
+			var body struct{ FileName, Content string }
+			if err := c.ShouldBindJSON(&body); err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			name, content = body.FileName, body.Content
+		}
+		c.JSON(200, gin.H{"name": name, "content": content})
+	})
 	return r
 }
 
