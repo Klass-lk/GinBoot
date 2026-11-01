@@ -48,6 +48,11 @@ Feature: TestSuite steps
       """
     Then the response "$.value" should be "posted"
 
+  Scenario: A header both services set differently can be left out of the comparison
+    When I send a GET request to "/typed" to both services
+    Then both responses should match under these rules:
+      | ignore header | Content-Type |
+
   Scenario: Comparing with a reference service
     When I send a GET request to "/items/1" to both services
     Then both responses should match ignoring:
@@ -93,6 +98,34 @@ Feature: TestSuite steps
     Then both responses should match
     And document "notes" should match in both databases
     And document "notes" should have 1 item
+
+  @parity
+  Scenario: Comparing a JSON route with a reference that takes the JSON as a multipart part
+    When I send a POST request to "/notes/form" to both services with JSON, as multipart part "meta" to the reference:
+      """
+      {"text": "moved out of the form"}
+      """
+    Then both responses should match
+    And the response "$.expectedFormat" should be "true"
+    And the response "$.note.text" should be "moved out of the form"
+
+  @parity
+  Scenario: Comparing a route taking a file as JSON with a reference taking it as a file part
+    When I send a POST request to "/notes/import" to both services with the file "notes.csv", as multipart part "file" to the reference:
+      """
+      "a, b",yes
+      """
+    Then both responses should match
+    And the response "$.name" should be "notes.csv"
+    And the response "$.content" should be "\"a, b\",yes"
+
+  Scenario: Sending a file as JSON
+    When I send a POST request to "/notes/import" with the file "one.csv" as JSON:
+      """
+      text
+      """
+    Then the response status should be 200
+    And the response "$.content" should be "text"
 
   Scenario: Raw bodies, requests without a body and empty responses
     When I send a POST request to "/raw" with raw body:

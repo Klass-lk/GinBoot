@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,6 +144,56 @@ func suiteRouter(db *memoryAdapter, generatedAt, version string) *gin.Engine {
 		c.JSON(200, gin.H{"body": string(b), "type": c.GetHeader("Content-Type")})
 	})
 	r.GET("/drift", func(c *gin.Context) { c.JSON(200, gin.H{"version": version, "same": true}) })
+	// The same body under a different media type on each side.
+	r.GET("/typed", func(c *gin.Context) {
+		mediaType := "application/json"
+		if version == "java" {
+			mediaType = "application/x-ndjson"
+		}
+		c.Data(200, mediaType, []byte(`{"same":true}`))
+	})
+	// The reference ("java") takes the note as a multipart part "meta", the
+	// service as JSON; each echoes it and whether it got the format it takes.
+	r.POST("/notes/form", func(c *gin.Context) {
+		raw := []byte{}
+		if version == "java" {
+			// A part without a filename is a form value, as Spring's
+			// @RequestPart reads it.
+			raw = []byte(c.PostForm("meta"))
+		} else {
+			raw, _ = io.ReadAll(c.Request.Body)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		mediaType, _, _ := mime.ParseMediaType(c.GetHeader("Content-Type"))
+		c.JSON(200, gin.H{"note": body, "expectedFormat": (mediaType == "multipart/form-data") == (version == "java")})
+	})
+	// The reference takes a file part "file", the service the same file as
+	// JSON; each echoes the name and the text.
+	r.POST("/notes/import", func(c *gin.Context) {
+		var name, content string
+		if version == "java" {
+			f, err := c.FormFile("file")
+			if err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			r, _ := f.Open()
+			raw, _ := io.ReadAll(r)
+			name, content = f.Filename, string(raw)
+		} else {
+			var body struct{ FileName, Content string }
+			if err := c.ShouldBindJSON(&body); err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+			name, content = body.FileName, body.Content
+		}
+		c.JSON(200, gin.H{"name": name, "content": content})
+	})
 	return r
 }
 
@@ -430,6 +481,19 @@ func TestBothResponsesMatchWithListsInAnyOrder(t *testing.T) {
 	assert.Error(t, ts.bothResponsesShouldMatch(), "order matters by default")
 	assert.NoError(t, ts.bothResponsesShouldMatchUnordered(table([]string{"$.students", "id"}, []string{"$.tags"})))
 	assert.Error(t, ts.bothResponsesShouldMatchUnordered(table([]string{"$.tags"})), "only the listed paths")
+}
+
+func TestBothResponsesMatchUnderRules(t *testing.T) {
+	ts := &TestSuite{}
+	ts.refResp = &parity.Response{Status: 200, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: []byte(`{"id":"r-1","ranks":[{"id":"a","n":1},{"id":"b","n":2}]}`)}
+	ts.Resp = &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}}
+	ts.RespBody = []byte(`{"id":"c-9","ranks":[{"id":"b","n":2},{"id":"a","n":1}]}`)
+	assert.NoError(t, ts.bothResponsesShouldMatchUnder(table([]string{"ignore", "$.id"}, []string{"unordered", "$.ranks", "id"})))
+	assert.Error(t, ts.bothResponsesShouldMatchUnder(table([]string{"ignore", "$.id"})), "ranks still ordered")
+	assert.Error(t, ts.bothResponsesShouldMatchUnder(table([]string{"unordered", "$.ranks", "id"})), "ids still compared")
+	assert.ErrorContains(t, ts.bothResponsesShouldMatchUnder(table([]string{"skip", "$.id"})), "unknown rule")
+	assert.ErrorContains(t, ts.bothResponsesShouldMatchUnder(table([]string{"ignore"})), "kind and a path")
 }
 
 func TestSeedingClearsLeftoversFirst(t *testing.T) {
