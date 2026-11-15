@@ -1,7 +1,9 @@
 package ginboot
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"path"
 	"reflect"
@@ -139,7 +141,16 @@ func wrapHandler(handler interface{}, fileService FileService, logger Logger, se
 			if str, ok := response.(string); ok {
 				ctx.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(str))
 			} else {
-				ctx.JSON(http.StatusOK, response)
+				// Marshal before writing anything: gin's c.JSON sends the 200
+				// first, so a value that fails to marshal reached the client as
+				// a 200 with a cut body, logged as a success. The bytes and
+				// Content-Type are the ones c.JSON writes.
+				body, err := json.Marshal(response)
+				if err != nil {
+					ctx.SendError(fmt.Errorf("ginboot: the response could not be written as JSON: %w", err))
+					return
+				}
+				ctx.Data(http.StatusOK, "application/json; charset=utf-8", body)
 			}
 		} else {
 			ctx.Status(http.StatusOK)

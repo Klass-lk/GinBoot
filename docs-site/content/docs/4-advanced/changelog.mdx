@@ -46,6 +46,13 @@ All notable changes, new features, architectural improvements, and deprecations 
 - New steps: principals (`I am authenticated as`), headers and cookies, JSON bodies, JSONPath assertions, Extended JSON seeding, snapshots, and comparison with a reference service. `Steps` registers application steps; `Send` and `Lookup` are exported for them.
 - `Paths` makes the feature location configurable; `TestFeatures` fails the test when a scenario fails.
 
+### 🛠 Fixes
+
+#### 1. A response that cannot be marshalled answers 500 **(behaviour change)**
+- The handler wrapper used gin's `c.JSON`, which writes the `200` status before marshalling. A value whose `MarshalJSON` failed reached the client as a `200` with an empty or cut body, and the request was logged as a success.
+- The value is now marshalled first. A failure goes through `SendError` (a `500`, logged at ERROR with the marshal error); a success writes the same bytes and `Content-Type` as `c.JSON`.
+- Cost: the same time per response (≈10.2 µs median for a 50-item list, before and after, `BenchmarkHandlerJSONResponse`), 3 more allocations (+85 B).
+
 ### 🔭 Telemetry
 
 #### 1. `ginboot.yml`'s telemetry block now does something

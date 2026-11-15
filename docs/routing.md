@@ -160,7 +160,7 @@ group.GET("/:type/*path", controller.GetFile)   // Matches /files/image/avatar.p
 
 ## Handler Function Signatures
 
-Ginboot offers flexibility in defining your handler functions. The framework's internal `wrapHandler` mechanism automatically adapts your handler's signature to Gin's requirements, handling request parsing, context injection, and error management. All handlers must return two values: a response value (can be any type) and an error value.
+Ginboot offers flexibility in defining your handler functions. The framework's internal `wrapHandler` mechanism automatically adapts your handler's signature to Gin's requirements, handling request parsing, context injection, and error management. All handlers must return two values: a response value (can be any type) and an error value. A non-nil response value is written as `200` JSON (a `string` as `text/plain`); it is marshalled before anything is sent, so a value that cannot be marshalled answers `500` like a returned error.
 
 ### 1. Context Only Handler
 

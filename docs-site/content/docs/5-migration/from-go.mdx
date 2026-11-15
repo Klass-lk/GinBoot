@@ -297,7 +297,9 @@ func (c *UserController) List(ctx *ginboot.Context) (ginboot.PageResponse[model.
 ### Success is always 200
 
 On the success path Ginboot writes `200 OK` — a `string` return as `text/plain`, anything
-else as JSON, and `nil` as a bare `200`. If your contract has `201 Created` or
+else as JSON, and `nil` as a bare `200`. The value is marshalled before anything is
+written, so one that cannot be (a `MarshalJSON` that fails, a channel, a cyclic value)
+answers `500` like a returned error instead of a `200` with a cut body. If your contract has `201 Created` or
 `204 No Content`, write the response yourself and return `nil, nil`. Ginboot checks
 whether the response has already been written and leaves it alone:
 

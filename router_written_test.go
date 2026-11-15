@@ -2,6 +2,7 @@ package ginboot
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,5 +88,44 @@ func TestHandlerReturnValueStillSent(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "alpha") {
 		t.Errorf("body = %q, want the returned value", response.Body.String())
+	}
+}
+
+type unmarshalable struct{}
+
+func (unmarshalable) MarshalJSON() ([]byte, error) { return nil, errors.New("no JSON form") }
+
+type marshalFailingController struct{}
+
+func (marshalFailingController) Register(group *ControllerGroup) {
+	group.GET("/broken", func() (any, error) { return unmarshalable{}, nil })
+	group.GET("/fine", func() (any, error) { return map[string]string{"html": "<a&b>"}, nil })
+}
+
+// TestResponseThatCannotBeMarshalledIsA500 pins that a handler's value is
+// marshalled before the status goes out: gin's c.JSON wrote 200 first, so a
+// marshal failure reached the client as a 200 with an empty body and was
+// logged as a success.
+func TestResponseThatCannotBeMarshalledIsA500(t *testing.T) {
+	server := New()
+	server.SetBasePath("/api")
+	server.RegisterController("x", marshalFailingController{})
+
+	response := httptest.NewRecorder()
+	server.Engine().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/x/broken", nil))
+	if response.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", response.Code)
+	}
+
+	// A value that marshals is written exactly as gin's c.JSON writes it.
+	response = httptest.NewRecorder()
+	server.Engine().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/x/fine", nil))
+	want := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(want)
+	ginCtx.JSON(http.StatusOK, map[string]string{"html": "<a&b>"})
+	if response.Code != http.StatusOK || response.Body.String() != want.Body.String() ||
+		response.Header().Get("Content-Type") != want.Header().Get("Content-Type") {
+		t.Errorf("got %d %q %q, want 200 %q %q", response.Code, response.Header().Get("Content-Type"), response.Body.String(),
+			want.Header().Get("Content-Type"), want.Body.String())
 	}
 }

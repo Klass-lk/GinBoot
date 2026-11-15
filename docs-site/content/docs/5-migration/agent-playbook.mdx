@@ -118,7 +118,7 @@ Rules enforced at registration time, by panic:
 
 | Handler returns | Client receives |
 | :--- | :--- |
-| `(value, nil)` | `200` + JSON body |
+| `(value, nil)` | `200` + JSON body; `500` if the value cannot be marshalled (nothing is written before marshalling succeeds) |
 | `(string, nil)` | `200` + `text/plain; charset=utf-8` |
 | `(nil, nil)` | `200`, empty body — unless the handler already wrote a response, which is left alone |
 | `(_, ginboot.ApiError)` | The numeric code in the error (400–599), with `{"error_code","message"}` |
